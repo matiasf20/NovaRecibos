@@ -10,11 +10,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:open_filex/open_filex.dart'; 
-// 🚀 CAMBIO QUIRÚRGICO DE IMPORTS CONDICIONALES
-import 'package:universal_html/html.dart' as html;
+import 'package:printing/printing.dart'; // 🚀 AÑADIDO: PAQUETE UNIVERSAL DE PDF
 import 'pantalla_bienvenida.dart';
 
 class PantallaAdminDashboard extends StatefulWidget {
@@ -39,35 +35,11 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
   String? _logoUrl;
   bool _cargandoDatos = true;
 
-  List<File> _archivosCSV = [];
-
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _cargarDatosEmpresa();
-    _cargarHistorialCSV(); 
-  }
-
-  Future<void> _cargarHistorialCSV() async {
-    if (kIsWeb) return; // Evita lectura de directorios locales en web/iPhone
-    try {
-      final dir = await getTemporaryDirectory();
-      final archivos = dir.listSync().whereType<File>().where((file) {
-        final nombre = file.path.split(Platform.pathSeparator).last;
-        return nombre.endsWith('.csv') && nombre.startsWith('Reporte_Financiero_');
-      }).toList();
-      
-      archivos.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
-      
-      if (mounted) {
-        setState(() {
-          _archivosCSV = archivos;
-        });
-      }
-    } catch (e) {
-      print("Error al cargar historial: $e");
-    }
   }
 
   Future<void> _cargarDatosEmpresa() async {
@@ -142,7 +114,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
     return resultado ?? false;
   }
 
-  // 🚀 INTERNA AUXILIAR: EXTRAE LOS BYTES DEL PDF CORPORATIVO
+  // 🚀 ACTUALIZADO: EXTRAE LOS BYTES DEL PDF CORPORATIVO CON FILTRO WEB PARA LOGO LOCAL
   Future<Uint8List?> _generarBytesPDFAdmin(Map<String, dynamic> data) async {
     try {
       final pdf = pw.Document();
@@ -156,9 +128,20 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
             final List<int> bytes = [];
             await for (var chunk in response) { bytes.addAll(chunk); }
             imagenLogo = pw.MemoryImage(Uint8List.fromList(bytes));
+          } else if (_logoUrl!.length > 500) {
+            final bytes = base64Decode(_logoUrl!);
+            imagenLogo = pw.MemoryImage(Uint8List.fromList(bytes));
+          } else {
+            // Protección contra directorios locales en web
+            if (!kIsWeb) {
+              final file = File(_logoUrl!);
+              if (file.existsSync()) {
+                imagenLogo = pw.MemoryImage(file.readAsBytesSync());
+              }
+            }
           }
         } catch (e) {
-          print("No se pudo descargar el logo: $e");
+          print("No se pudo cargar el logo: $e");
         }
       }
 
@@ -228,100 +211,38 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
     }
   }
 
+  // 🚀 REEMPLAZO COMPLETO: APERTURA DE OPCIONES USANDO EL MOTOR "PRINTING"
   void _abrirOpcionesPDF(Map<String, dynamic> item) async {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Procesando documento... ⏳"), duration: Duration(milliseconds: 800)));
     
-    if (kIsWeb) {
-      // 🚀 COMPORTAMIENTO WEB/IPHONE: DESCARGA DIRECTA
-      final pdfBytes = await _generarBytesPDFAdmin(item);
-      if (pdfBytes == null) return;
-      final blob = html.Blob([pdfBytes], 'application/pdf');
-      final url = html.Url.createObjectUrlFromBlob(blob);
-      html.AnchorElement(href: url)
-        ..setAttribute("download", "Recibo_N${item['numero']}_Admin.pdf")
-        ..click();
-      html.Url.revokeObjectUrl(url);
-    } else {
-      // COMPORTAMIENTO NATIVO ANDROID
-      final pdfBytes = await _generarBytesPDFAdmin(item);
-      if (pdfBytes == null) return;
-      final output = await getTemporaryDirectory();
-      final file = File("${output.path}/Recibo_N${item['numero']}_Admin.pdf");
-      await file.writeAsBytes(pdfBytes);
+    final Uint8List? pdfBytes = await _generarBytesPDFAdmin(item);
+    if (pdfBytes == null) return;
+    if (!mounted) return;
 
-      showModalBottomSheet(
-        context: context,
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (context) => SafeArea(
-          child: Wrap(
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text("Opciones del Comprobante", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
-              ),
-              ListTile(
-                leading: const Icon(Icons.visibility, color: Colors.blue),
-                title: const Text("Abrir y Ver PDF"),
-                onTap: () {
-                  Navigator.pop(context);
-                  OpenFilex.open(file.path); 
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.share, color: Colors.green),
-                title: const Text("Compartir Documento"),
-                onTap: () {
-                  Navigator.pop(context);
-                  // ignore: deprecated_member_use
-                  Share.shareXFiles([XFile(file.path)], text: 'Adjunto comprobante digital de servicio de transporte.');
-                },
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
-      );
-    }
-  }
-
-  void _abrirOpcionesCSV(File archivo) {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) => SafeArea(
         child: Wrap(
           children: [
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Text("Reporte CSV Generado\n${archivo.path.split(Platform.pathSeparator).last}", 
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text("Opciones del Comprobante", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
             ),
             ListTile(
-              leading: const Icon(Icons.table_view, color: Colors.blue),
-              title: const Text("Abrir y ver archivo"),
+              leading: const Icon(Icons.print, color: Colors.blue),
+              title: const Text("Ver / Imprimir PDF"),
               onTap: () async {
                 Navigator.pop(context);
-                final resultado = await OpenFilex.open(archivo.path);
-                if (resultado.type != ResultType.done) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text("No se puede abrir el archivo porque no tienes una aplicación para visualizar archivos .csv."),
-                        duration: Duration(seconds: 4),
-                        backgroundColor: Colors.red, 
-                      )
-                    );
-                  }
-                }
+                await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => pdfBytes);
               },
             ),
             ListTile(
               leading: const Icon(Icons.share, color: Colors.green),
-              title: const Text("Compartir archivo"),
-              onTap: () {
+              title: const Text("Compartir / Descargar"),
+              onTap: () async {
                 Navigator.pop(context);
-                // ignore: deprecated_member_use
-                Share.shareXFiles([XFile(archivo.path)], text: 'Adjunto reporte financiero.');
+                await Printing.sharePdf(bytes: pdfBytes, filename: "Recibo_N${item['numero']}_Admin.pdf");
               },
             ),
             const SizedBox(height: 20),
@@ -329,36 +250,6 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
         ),
       ),
     );
-  }
-
-  Future<void> _eliminarReporteCSV(File archivo) async {
-    final confirmar = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Eliminar Reporte", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-        content: const Text("¿Deseas eliminar este archivo CSV de tu teléfono? No borrará los datos de la app, solo este archivo generado."),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("CANCELAR")),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text("SÍ, ELIMINAR"),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmar == true) {
-      try {
-        if (archivo.existsSync()) {
-          archivo.deleteSync();
-        }
-        await _cargarHistorialCSV(); 
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Archivo eliminado del dispositivo.")));
-      } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al eliminar: $e")));
-      }
-    }
   }
 
   Future<void> _eliminarComprobante(String docId) async {
@@ -415,7 +306,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
     }
   }
 
-  // 🚀 ACTUALIZADO ADREDE: COMPATIBILIDAD HÍBRIDA EXCEL CON FILA TOTAL
+  // 🚀 REEMPLAZO 2: EXPORTACIÓN DE EXCEL/CSV COMPATIBLE CON WEB Y MÓVIL AL MISMO TIEMPO
   Future<void> _exportarExcelAdmin(List<QueryDocumentSnapshot> docs) async {
     try {
       String csvData = "N° Recibo,Fecha,Conductor,Patente,Pasajero,Origen,Destino,Monto\n";
@@ -446,26 +337,13 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
       final totalFormateado = "\$${fMoneda.format(sumaTotal)}";
       csvData += ",,,,,,,\"TOTAL:\",\"$totalFormateado\"\n";
 
-      final nombreArchivo = "Reporte_Financiero_${DateFormat('dd_MM_yyyy').format(DateTime.now())}.csv";
-      final bytes = [239, 187, 191] + utf8.encode(csvData);
+      final nombreArchivo = "Reporte_Flota_${DateFormat('dd_MM_yyyy').format(DateTime.now())}.csv";
+      // Añadimos el BOM UTF-8 [239, 187, 191] para compatibilidad perfecta con Microsoft Excel
+      final bytes = Uint8List.fromList([239, 187, 191] + utf8.encode(csvData));
 
-      if (kIsWeb) {
-        // 🚀 COMPORTAMIENTO IPHONE PWA (Descarga directa en Safari)
-        final blob = html.Blob([bytes], 'text/csv;charset=utf-8');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        html.AnchorElement(href: url)
-          ..setAttribute("download", nombreArchivo)
-          ..click();
-        html.Url.revokeObjectUrl(url);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reporte descargado en tu iPhone.')));
-      } else {
-        // COMPORTAMIENTO ANDROID NATIVO
-        final output = await getTemporaryDirectory();
-        final file = File("${output.path}/$nombreArchivo");
-        await file.writeAsBytes(bytes); 
-        await _cargarHistorialCSV(); 
-        _abrirOpcionesCSV(file);
-      }
+      // El paquete Printing se encarga de iniciar la descarga en web o compartir en celulares
+      await Printing.sharePdf(bytes: bytes, filename: nombreArchivo);
+
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al generar Excel: $e')));
     }
@@ -753,9 +631,6 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
             totalSemana += monto;
           }
           if (fecha.year == ahora.year && fecha.month == ahora.month) {
-            // Reparación de typo heredado para que use el mes activo correcto
-          }
-          if (fecha.year == ahora.year && fecha.month == ahora.month) {
             totalMes += monto;
           }
         }
@@ -791,44 +666,6 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
                   _exportarExcelAdmin(docs); 
                 },
               ),
-              
-              // 🚀 SÓLO RENDERIZA EL HISTORIAL DE DISCO SI CORRE EN UN TELÉFONO ANDROID FISICO
-              if (!kIsWeb) ...[
-                const SizedBox(height: 40),
-                const Text("Historial de Reportes Generados", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
-                const Divider(),
-                if (_archivosCSV.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 20),
-                    child: Center(child: Text("Aún no has generado ningún reporte.", style: TextStyle(color: Colors.grey))),
-                  )
-                else
-                  ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(), 
-                    itemCount: _archivosCSV.length,
-                    itemBuilder: (context, index) {
-                      final archivo = _archivosCSV[index];
-                      final fechaCreacion = archivo.lastModifiedSync();
-                      final nombreLindo = "Reporte Financiero ${DateFormat('dd/MM/yyyy').format(fechaCreacion)}";
-                      
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 6),
-                        elevation: 1,
-                        child: ListTile(
-                          leading: const Icon(Icons.insert_drive_file, color: Colors.green, size: 30),
-                          title: Text(nombreLindo, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                          subtitle: Text("${(archivo.lengthSync() / 1024).toStringAsFixed(1)} KB", style: const TextStyle(fontSize: 12)),
-                          onTap: () => _abrirOpcionesCSV(archivo), 
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.red),
-                            onPressed: () => _eliminarReporteCSV(archivo),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-              ],
             ],
           ),
         );

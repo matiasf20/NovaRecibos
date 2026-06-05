@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously, avoid_print
 import 'dart:io';
 import 'dart:convert'; 
+import 'package:flutter/foundation.dart'; // 🚀 AÑADIDO PARA kIsWeb
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -8,9 +9,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart'; 
-import 'package:open_filex/open_filex.dart'; 
+import 'package:printing/printing.dart'; // 🚀 AÑADIDO: PAQUETE UNIVERSAL DE PDF
 import 'pantalla_bienvenida.dart';
 
 class PantallaConductorEmpresa extends StatefulWidget {
@@ -173,7 +172,8 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
     );
   }
 
-  Future<File?> _generarPDFCorporativo(Map<String, dynamic> data) async {
+  // 🚀 REEMPLAZO 1: _generarPDFCorporativo AHORA DEVUELVE Uint8List EN LUGAR DE File
+  Future<Uint8List?> _generarPDFCorporativo(Map<String, dynamic> data) async {
     try {
       pw.MemoryImage? imagenLogo;
 
@@ -190,9 +190,12 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
             final bytes = base64Decode(_logoUrl!);
             imagenLogo = pw.MemoryImage(Uint8List.fromList(bytes));
           } else {
-            final file = File(_logoUrl!);
-            if (file.existsSync()) {
-              imagenLogo = pw.MemoryImage(file.readAsBytesSync());
+            // 🚀 EVITAMOS ERROR DE RUTA LOCAL EN WEB
+            if (!kIsWeb) {
+              final file = File(_logoUrl!);
+              if (file.existsSync()) {
+                imagenLogo = pw.MemoryImage(file.readAsBytesSync());
+              }
             }
           }
         } catch (e) {
@@ -339,10 +342,9 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
         ),
       );
 
-      final output = await getTemporaryDirectory();
-      final file = File("${output.path}/Recibo_N${data['numero']}_Flota.pdf");
-      await file.writeAsBytes(await pdf.save());
-      return file;
+      // 🚀 RETORNAMOS DIRECTAMENTE LOS BYTES (ESTO FUNCIONA EN WEB Y CELULAR)
+      return await pdf.save();
+
     } catch (e) {
       if (!mounted) return null;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al crear PDF: $e')));
@@ -350,10 +352,13 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
     }
   }
 
+  // 🚀 REEMPLAZO 2: _abrirOpcionesPDF AHORA USA EL PAQUETE "PRINTING"
   void _abrirOpcionesPDF(Map<String, dynamic> item) async {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Procesando documento... ⏳"), duration: Duration(milliseconds: 800)));
-    File? archivoPdf = await _generarPDFCorporativo(item);
-    if (archivoPdf == null) return;
+    
+    // Obtenemos los Bytes del PDF
+    Uint8List? archivoPdfBytes = await _generarPDFCorporativo(item);
+    if (archivoPdfBytes == null) return;
     if (!mounted) return;
 
     showModalBottomSheet(
@@ -367,20 +372,21 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
               child: Text("Opciones del Comprobante", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
             ),
             ListTile(
-              leading: const Icon(Icons.visibility, color: Colors.blue),
-              title: const Text("Abrir y Ver PDF"),
-              onTap: () {
+              leading: const Icon(Icons.print, color: Colors.blue),
+              title: const Text("Ver / Imprimir PDF"),
+              onTap: () async {
                 Navigator.pop(context);
-                OpenFilex.open(archivoPdf.path); 
+                // 🚀 ABRE PREVISUALIZACIÓN EN WEB Y CELULAR
+                await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => archivoPdfBytes);
               },
             ),
             ListTile(
               leading: const Icon(Icons.share, color: Colors.green),
-              title: const Text("Compartir Documento"),
-              onTap: () {
+              title: const Text("Compartir / Descargar"),
+              onTap: () async {
                 Navigator.pop(context);
-                // ignore: deprecated_member_use
-                Share.shareXFiles([XFile(archivoPdf.path)], text: 'Comprobante digital de servicio de transporte.');
+                // 🚀 EN WEB: DESCARGA EL ARCHIVO. EN CELULAR: ABRE WHATSAPP/CORREO.
+                await Printing.sharePdf(bytes: archivoPdfBytes, filename: 'Recibo_Flota_N${item['numero']}.pdf');
               },
             ),
             const SizedBox(height: 20),
@@ -441,7 +447,7 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
       setState(() { _generandoRecibo = false; });
     }
   }
-// 🚀 PEGA ESTO JUSTO ARRIBA DEL WIDGET BUILD
+
   Widget _construirAvatarLogo(String? ruta) {
     Widget imagenFinal;
 
@@ -453,11 +459,16 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
     } else if (ruta.length > 500) {
       imagenFinal = Image.memory(base64Decode(ruta), fit: BoxFit.contain);
     } else {
-      final file = File(ruta);
-      if (file.existsSync()) {
-        imagenFinal = Image.file(file, fit: BoxFit.contain);
+      // 🚀 PROTECCIÓN DE IMAGEN LOCAL PARA WEB
+      if (kIsWeb) {
+         imagenFinal = const Icon(Icons.business, color: Color(0xFF0D47A1), size: 24);
       } else {
-        imagenFinal = const Icon(Icons.business, color: Color(0xFF0D47A1), size: 24);
+        final file = File(ruta);
+        if (file.existsSync()) {
+          imagenFinal = Image.file(file, fit: BoxFit.contain);
+        } else {
+          imagenFinal = const Icon(Icons.business, color: Color(0xFF0D47A1), size: 24);
+        }
       }
     }
 
@@ -468,12 +479,13 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
       child: imagenFinal,
     );
   }
+  
   @override
   Widget build(BuildContext context) {
     if (_cargandoDatos) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     return Scaffold(
-appBar: AppBar(
+      appBar: AppBar(
         toolbarHeight: 80, 
         backgroundColor: const Color(0xFF0D47A1),
         elevation: 0,
@@ -586,7 +598,6 @@ appBar: AppBar(
           ),
           const SizedBox(height: 20),
 
-          // 🚀 TEXTO DE PAGOS CORREGIDO
           SwitchListTile(
             title: const Text("Mostrar medios de pago", style: TextStyle(fontWeight: FontWeight.bold)),
             subtitle: const Text("Agrega Redcompra, visa Y Mastercard Al Pdf"),
@@ -616,7 +627,6 @@ appBar: AppBar(
   Widget _crearCajaTextoSimple(String hint, TextEditingController controller) {
     return TextField(
       controller: controller,
-      // 🚀 AUTO-MAYÚSCULA ACTIVADO
       textCapitalization: TextCapitalization.words, 
       decoration: InputDecoration(
         hintText: hint,

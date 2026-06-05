@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously, avoid_print
 import 'dart:io';
 import 'dart:convert'; 
+import 'package:flutter/foundation.dart'; // 🚀 IMPORTACIÓN NECESARIA PARA kIsWeb
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; 
 import 'package:image_picker/image_picker.dart';
@@ -24,7 +25,8 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  String? _rutaLogo;
+  // 🚀 CAMBIO CLAVE: Usamos XFile
+  XFile? _imagenSeleccionada;
   bool _cargando = false;
   bool _ocultarPassword = true;
 
@@ -32,7 +34,7 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
     final ImagePicker picker = ImagePicker();
     final XFile? imagen = await picker.pickImage(source: ImageSource.gallery, imageQuality: 40); 
     if (imagen != null) {
-      setState(() { _rutaLogo = imagen.path; });
+      setState(() { _imagenSeleccionada = imagen; });
     }
   }
 
@@ -58,10 +60,10 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
       );
 
       String? logoComoTexto;
-      if (_rutaLogo != null) {
+      if (_imagenSeleccionada != null) {
         try {
-          File archivoImagen = File(_rutaLogo!);
-          List<int> bytesImagen = await archivoImagen.readAsBytes();
+          // 🚀 SOLUCIÓN UNIVERSAL: readAsBytes funciona en Web, iOS y Android
+          List<int> bytesImagen = await _imagenSeleccionada!.readAsBytes();
           logoComoTexto = base64Encode(bytesImagen); 
         } catch (e) {
           print("Error convirtiendo logo: $e");
@@ -73,7 +75,7 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
         'empresa_nombre': _empresaController.text.trim(),
         'rut_empresa': _rutController.text.trim(),
         'celular_contacto': _celularController.text.trim(),
-        'sitio_web': _webController.text.trim().toUpperCase(), // 🚀 Guardado en MAYÚSCULAS
+        'sitio_web': _webController.text.trim().toUpperCase(), 
         'correo_admin': correoLimpio,
         'rol': 'admin',
         'ruta_logo': logoComoTexto, 
@@ -112,7 +114,6 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
     return TextField(
       controller: controller,
       keyboardType: esNumero ? TextInputType.number : TextInputType.text,
-      // 🚀 AUTO-MAYÚSCULA INTELIGENTE: Letras capitales para nombres, Mayúscula total para Web
       textCapitalization: esNumero ? TextCapitalization.none : (todoMayuscula ? TextCapitalization.characters : TextCapitalization.words), 
       inputFormatters: formatters ?? (esNumero ? [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(9)] : []),
       decoration: InputDecoration(
@@ -179,25 +180,23 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
                         onTap: _seleccionarLogo,
                         child: Column(
                           children: [
-Container(
-                                  width: 110,
-                                  height: 110,
-                                  // 🚀 Añadimos un padding (margen interno) para que el logo respire y no toque la línea azul
-                                  padding: const EdgeInsets.all(6), 
-                                  decoration: BoxDecoration(
-                                    color: Colors.white, // Fondo siempre blanco por si el logo es transparente
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: const Color(0xFF0D47A1), width: 2),
-                                  ),
-                                  clipBehavior: Clip.hardEdge,
-                                  child: _rutaLogo != null
-                                      ? Image.file(
-                                          File(_rutaLogo!), 
-                                          // 🚀 LA CLAVE: Ajuste automático universal
-                                          fit: BoxFit.contain, 
-                                        )
-                                      : const Icon(Icons.add_photo_alternate_outlined, size: 50, color: Color(0xFF0D47A1)),
-                                ),
+                            Container(
+                              width: 110,
+                              height: 110,
+                              padding: const EdgeInsets.all(6), 
+                              decoration: BoxDecoration(
+                                color: Colors.white, 
+                                shape: BoxShape.circle,
+                                border: Border.all(color: const Color(0xFF0D47A1), width: 2),
+                              ),
+                              clipBehavior: Clip.hardEdge,
+                              child: _imagenSeleccionada != null
+                                  // 🚀 APLICAMOS LA LÓGICA INTELIGENTE DE WEB VS MÓVIL
+                                  ? (kIsWeb 
+                                      ? Image.network(_imagenSeleccionada!.path, fit: BoxFit.contain)
+                                      : Image.file(File(_imagenSeleccionada!.path), fit: BoxFit.contain))
+                                  : const Icon(Icons.add_photo_alternate_outlined, size: 50, color: Color(0xFF0D47A1)),
+                            ),
                             const SizedBox(height: 8),
                             const Text("Logo de la Empresa", style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold)),
                           ],
@@ -219,7 +218,6 @@ Container(
                       ),
                       const SizedBox(height: 20),
                       
-                      // 🚀 CELULAR RESTRINGIDO SOLO A NÚMEROS Y MÁXIMO 9
                       _buildField(
                         label: "Celular de Contacto", 
                         controller: _celularController, 

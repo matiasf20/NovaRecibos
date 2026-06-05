@@ -8,15 +8,12 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart'; 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:open_filex/open_filex.dart'; 
+import 'package:printing/printing.dart'; // 🚀 PAQUETE UNIVERSAL
 import 'pantalla_bienvenida.dart';
-// 🚀 CAMBIO QUIRÚRGICO DE IMPORTS CONDICIONALES
-import 'package:universal_html/html.dart' as html;
+
 // 🧱 ESTRUCTURAS DE CONTROL
 // ---------------------------------------------------------------------
 class Recibo {
@@ -57,7 +54,7 @@ class DatosEmpresa {
   final String nombreConductor;
   final String nombreEmpresa;
   final String rutEmpresa;
-  final String celular; // 🚀 Corregido: 'celular' con una sola 'l'
+  final String celular; 
   final String correo;
   final String patente; 
   final String sitioWeb; 
@@ -67,7 +64,7 @@ class DatosEmpresa {
     required this.nombreConductor, 
     required this.nombreEmpresa, 
     required this.rutEmpresa,
-    required this.celular, // 🚀 Corregido
+    required this.celular, 
     required this.correo, 
     required this.patente, 
     required this.sitioWeb, 
@@ -88,13 +85,10 @@ class PantallaInicio extends StatefulWidget {
 
 class _PantallaInicioState extends State<PantallaInicio> {
   List<Recibo> misRecibos = [];
-  List<File> _archivosCSV = []; 
   bool _esFlota = false;
   bool _cargandoVinculo = true;
   String? _empresaCorreoReal;
   late DatosEmpresa datosEmpresaActiva;
-
-  
 
   @override
   void initState() {
@@ -102,28 +96,6 @@ class _PantallaInicioState extends State<PantallaInicio> {
     datosEmpresaActiva = widget.datosEmpresa;
     _cargarRecibosMemoria();
     _analizarPerfilYVinculacion();
-    _cargarHistorialCSV(); 
-  }
-
-  // 🚀 ACTUALIZADO: PROTECCIÓN ANTI-CRASHEOS WEB
-  Future<void> _cargarHistorialCSV() async {
-    if (kIsWeb) return; // En iPhone Web el historial se descarga directo, no lee carpetas locales
-    try {
-      final dir = await getTemporaryDirectory();
-      final archivos = dir.listSync().whereType<File>().where((file) {
-        final nombre = file.path.split(Platform.pathSeparator).last;
-        return nombre.endsWith('.csv') && nombre.startsWith('Reporte_Financiero_'); 
-      }).toList();
-      archivos.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
-      
-      if (mounted) {
-        setState(() {
-          _archivosCSV = archivos;
-        });
-      }
-    } catch (e) {
-      print("Error al cargar historial: $e");
-    }
   }
 
   Future<void> _analizarPerfilYVinculacion() async {
@@ -168,7 +140,7 @@ class _PantallaInicioState extends State<PantallaInicio> {
             nombreConductor: docFlota['nombre'] ?? widget.datosEmpresa.nombreConductor,
             nombreEmpresa: nombreEmpresa,
             rutEmpresa: rutEmpresa,
-            celular: celularEmpresa, // 🚀 Asegúrate de que diga 'celular'
+            celular: celularEmpresa, 
             correo: widget.datosEmpresa.correo,
             patente: docFlota['patente'] ?? widget.datosEmpresa.patente,
             sitioWeb: sitioWeb,
@@ -301,7 +273,7 @@ class _PantallaInicioState extends State<PantallaInicio> {
     return resultado ?? false;
   }
 
-  // 🚀 ACTUALIZADO: HÍBRIDO ANDROID Y IPHONE WEB (PWA)
+  // 🚀 CAMBIO 1: EXPORTACIÓN DE CSV USANDO EL PAQUETE "PRINTING" (DirectRenderer)
   Future<void> _exportarCSVFinanzas() async {
     try {
       if (misRecibos.isEmpty) {
@@ -330,162 +302,17 @@ class _PantallaInicioState extends State<PantallaInicio> {
       csvData += ",,,,\"TOTAL:\",\"$totalFormateado\"\n";
       
       final nombreArchivo = "Reporte_Financiero_${DateFormat('dd_MM_yyyy').format(DateTime.now())}.csv";
-      final bytes = [239, 187, 191] + utf8.encode(csvData);
+      final bytes = Uint8List.fromList([239, 187, 191] + utf8.encode(csvData)); // Formato UTF-8 con BOM para Excel
 
-      if (kIsWeb) {
-        // 🚀 COMPORTAMIENTO PARA IPHONE PWA (Descarga directa en Safari)
-        final blob = html.Blob([bytes], 'text/csv;charset=utf-8');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-         html.AnchorElement(href: url)
-           ..setAttribute("download", nombreArchivo)
-           ..click();
-        html.Url.revokeObjectUrl(url);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reporte descargado en tu iPhone.')));
-      } else {
-        // 🚀 COMPORTAMIENTO NATIVO PARA ANDROID
-        final directory = await getTemporaryDirectory();
-        final path = "${directory.path}/$nombreArchivo";
-        final file = File(path);
-        await file.writeAsBytes(bytes); 
-        await _cargarHistorialCSV(); 
-        _abrirOpcionesCSV(file);
-      }
+      // 🚀 Usamos Printing para compartir/descargar el archivo binario
+      await Printing.sharePdf(bytes: bytes, filename: nombreArchivo);
+      
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al generar .CSV: $e")));
     }
   }
 
-Future<void> _abrirOpcionesPDFDesdeLista(Recibo recibo) async {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Procesando documento... ⏳"), duration: Duration(milliseconds: 800)));
-    
-    if (kIsWeb) {
-      final pdfBytes = await _generarBytesPDF(recibo);
-      if (pdfBytes == null) return;
-      final blob = html.Blob([pdfBytes], 'application/pdf');
-      final url = html.Url.createObjectUrlFromBlob(blob);
-      
-      // 🚀 CORREGIDO: Usamos el texto directo en lugar de 'nombreArchivo'
-      html.AnchorElement(href: url)
-        ..setAttribute("download", "Recibo_N${recibo.numero}_Independiente.pdf")
-        ..click();
-      html.Url.revokeObjectUrl(url);
-    } else {
-      // COMPORTAMIENTO ANDROID
-      final file = await _generarArchivoPDFTransparente(recibo);
-      if (file == null) return;
-      showModalBottomSheet(
-        context: context,
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (context) => SafeArea(
-          child: Wrap(
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text("Opciones del Comprobante", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
-              ),
-              ListTile(
-                leading: const Icon(Icons.visibility, color: Colors.blue),
-                title: const Text("Abrir y Ver PDF"),
-                onTap: () {
-                  Navigator.pop(context);
-                  OpenFilex.open(file.path); 
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.share, color: Colors.green),
-                title: const Text("Compartir Documento"),
-                onTap: () {
-                  Navigator.pop(context);
-                  // ignore: deprecated_member_use
-                  Share.shareXFiles([XFile(file.path)], text: 'Adjunto comprobante digital de servicio de transporte.');
-                },
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
-      );
-    }
-  }
-
-  void _abrirOpcionesCSV(File archivo) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => SafeArea(
-        child: Wrap(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Text("Reporte CSV Generado\n${archivo.path.split(Platform.pathSeparator).last}", 
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
-            ),
-            ListTile(
-              leading: const Icon(Icons.table_view, color: Colors.blue),
-              title: const Text("Abrir y ver archivo"),
-              onTap: () async {
-                Navigator.pop(context);
-                final resultado = await OpenFilex.open(archivo.path);
-                if (resultado.type != ResultType.done) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text("No se puede abrir el archivo porque no tienes una aplicación para visualizar archivos .csv."),
-                        duration: Duration(seconds: 4),
-                        backgroundColor: Colors.red, 
-                      )
-                    );
-                  }
-                }
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.share, color: Colors.green),
-              title: const Text("Compartir archivo"),
-              onTap: () {
-                Navigator.pop(context);
-                // ignore: deprecated_member_use
-                Share.shareXFiles([XFile(archivo.path)], text: 'Adjunto reporte financiero.');
-              },
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _eliminarReporteCSV(File archivo) async {
-    final confirmar = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Eliminar Reporte", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-        content: const Text("¿Deseas eliminar este archivo CSV de tu teléfono? No borrará los datos de la app, solo este archivo generado."),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("CANCELAR")),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text("SÍ, ELIMINAR"),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmar == true) {
-      try {
-        if (archivo.existsSync()) {
-          archivo.deleteSync();
-        }
-        await _cargarHistorialCSV(); 
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Archivo eliminado del dispositivo.")));
-      } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al eliminar: $e")));
-      }
-    }
-  }
-
-  // 🚀 NUEVA AUXILIAR WEB: OBTENER BYTES COMPATIBLES SIN DISCO LOCAL
+  // 🚀 CAMBIO 2: LÓGICA DE PDF UNIVERSAL
   Future<Uint8List?> _generarBytesPDF(Recibo recibo) async {
     try {
       final pdf = pw.Document();
@@ -502,6 +329,14 @@ Future<void> _abrirOpcionesPDFDesdeLista(Recibo recibo) async {
           } else if (datosEmpresaActiva.rutaLogo!.length > 500) { 
             final bytes = base64Decode(datosEmpresaActiva.rutaLogo!);
             imagenLogo = pw.MemoryImage(Uint8List.fromList(bytes));
+          } else {
+             // 🚀 PROTECCIÓN DE ARCHIVO LOCAL EN WEB
+             if (!kIsWeb) {
+               final file = File(datosEmpresaActiva.rutaLogo!);
+               if (file.existsSync()) {
+                  imagenLogo = pw.MemoryImage(file.readAsBytesSync());
+               }
+             }
           }
         } catch (e) { print(e); }
       }
@@ -563,23 +398,51 @@ Future<void> _abrirOpcionesPDFDesdeLista(Recibo recibo) async {
           },
         ),
       );
-      return pdf.save();
+      return await pdf.save();
     } catch (e) {
       return null;
     }
   }
 
-  Future<File?> _generarArchivoPDFTransparente(Recibo recibo) async {
-    try {
-      final bytes = await _generarBytesPDF(recibo);
-      if (bytes == null) return null;
-      final output = await getTemporaryDirectory();
-      final file = File("${output.path}/Recibo_N${recibo.numero}_Independiente.pdf");
-      await file.writeAsBytes(bytes);
-      return file;
-    } catch (e) {
-      return null;
-    }
+  // 🚀 CAMBIO 3: MENÚ DE PDF (Usa Printing para web y nativo)
+  Future<void> _abrirOpcionesPDFDesdeLista(Recibo recibo) async {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Procesando documento... ⏳"), duration: Duration(milliseconds: 800)));
+    
+    final Uint8List? pdfBytes = await _generarBytesPDF(recibo);
+    if (pdfBytes == null) return;
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text("Opciones del Comprobante", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
+            ),
+            ListTile(
+              leading: const Icon(Icons.print, color: Colors.blue),
+              title: const Text("Abrir y Ver PDF"),
+              onTap: () async {
+                Navigator.pop(context);
+                await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => pdfBytes); 
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.share, color: Colors.green),
+              title: const Text("Compartir / Descargar"),
+              onTap: () async {
+                Navigator.pop(context);
+                await Printing.sharePdf(bytes: pdfBytes, filename: 'Recibo_N${recibo.numero}_Independiente.pdf');
+              },
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _construirAvatarLogo(String? ruta) {
@@ -591,6 +454,7 @@ Future<void> _abrirOpcionesPDFDesdeLista(Recibo recibo) async {
     } else if (ruta.length > 500) {
       imagenFinal = Image.memory(base64Decode(ruta), fit: BoxFit.contain);
     } else {
+      // 🚀 PROTECCIÓN DE ARCHIVO LOCAL EN WEB
       if (kIsWeb) {
         imagenFinal = const Icon(Icons.business, color: Color(0xFF0D47A1), size: 24);
       } else {
@@ -837,44 +701,6 @@ Future<void> _abrirOpcionesPDFDesdeLista(Recibo recibo) async {
             label: const Text("GENERAR MI .CSV FINANCIERO", style: TextStyle(fontWeight: FontWeight.bold)),
             onPressed: _exportarCSVFinanzas, 
           ),
-          
-          // 🚀 SI ESTAMOS EN LA WEB OCULTAMOS EL HISTORIAL INTERNO PORQUE LAS DESCARGAS VAN DIRECTO AL CARRETE DE SAFARI
-          if (!kIsWeb) ...[
-            const SizedBox(height: 40),
-            const Text("Historial de Reportes Generados", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
-            const Divider(),
-            if (_archivosCSV.isEmpty)
-              const Padding(
-                padding: EdgeInsets.only(top: 20),
-                child: Center(child: Text("Aún no has generado ningún reporte.", style: TextStyle(color: Colors.grey))),
-              )
-            else
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _archivosCSV.length,
-                itemBuilder: (context, index) {
-                  final archivo = _archivosCSV[index];
-                  final fechaCreacion = archivo.lastModifiedSync();
-                  final nombreLindo = "Reporte Financiero ${DateFormat('dd/MM/yyyy').format(fechaCreacion)}";
-                  
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 6),
-                    elevation: 1,
-                    child: ListTile(
-                      leading: const Icon(Icons.insert_drive_file, color: Colors.green, size: 30),
-                      title: Text(nombreLindo, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                      subtitle: Text("${(archivo.lengthSync() / 1024).toStringAsFixed(1)} KB", style: const TextStyle(fontSize: 12)),
-                      onTap: () => _abrirOpcionesCSV(archivo), 
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.red),
-                        onPressed: () => _eliminarReporteCSV(archivo),
-                      ),
-                    ),
-                  );
-                },
-              ),
-          ],
         ],
       ),
     );
@@ -986,7 +812,7 @@ class _PantallaFormularioState extends State<PantallaFormulario> {
 }
 
 // ---------------------------------------------------------------------
-// 🖨️ VISUALIZADOR DETALLE Y GENERADOR PDF + COMPARTIR
+// 🖨️ VISUALIZADOR DETALLE Y GENERADOR PDF + COMPARTIR (VERSIÓN ÚNICA)
 // ---------------------------------------------------------------------
 class PantallaDetalleRecibo extends StatelessWidget {
   final Recibo recibo;
@@ -1011,6 +837,14 @@ class PantallaDetalleRecibo extends StatelessWidget {
           } else if (datosEmpresa.rutaLogo!.length > 500) { 
             final bytes = base64Decode(datosEmpresa.rutaLogo!);
             imagenLogo = pw.MemoryImage(Uint8List.fromList(bytes));
+          } else {
+             // 🚀 PROTECCIÓN DE ARCHIVO LOCAL EN WEB
+             if (!kIsWeb) {
+               final file = File(datosEmpresa.rutaLogo!);
+               if (file.existsSync()) {
+                  imagenLogo = pw.MemoryImage(file.readAsBytesSync());
+               }
+             }
           }
         } catch (e) {
           print("Aviso: Logo no cargado ($e)");
@@ -1075,25 +909,10 @@ class PantallaDetalleRecibo extends StatelessWidget {
         ),
       );
 
-final pdfBytes = await pdf.save();
+      final pdfBytes = await pdf.save();
 
-      if (kIsWeb) {
-        final blob = html.Blob([pdfBytes], 'application/pdf');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        
-        // 🚀 CORREGIDO: Usamos el texto directo en lugar de 'nombreArchivo'
-        html.AnchorElement(href: url)
-          ..setAttribute("download", "Recibo_N${recibo.numero}_${recibo.sr}.pdf")
-          ..click();
-        html.Url.revokeObjectUrl(url);
-      } else {
-        // COMPORTAMIENTO ANDROID NATIVO
-        final output = await getTemporaryDirectory();
-        final file = File("${output.path}/Recibo_N${recibo.numero}_${recibo.sr}.pdf");
-        await file.writeAsBytes(pdfBytes);
-        // ignore: deprecated_member_use
-        await Share.shareXFiles([XFile(file.path)], text: 'Adjunto comprobante digital de transporte electrónico.');
-      }
+      // 🚀 CAMBIO 4: USA PRINTING PARA COMPARTIR EL DOCUMENTO SIN COLAPSO WEB
+      await Printing.sharePdf(bytes: pdfBytes, filename: "Recibo_N${recibo.numero}_${recibo.sr}.pdf");
       
     } catch (e) {
       if (!context.mounted) return;
@@ -1149,10 +968,10 @@ final pdfBytes = await pdf.save();
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 55), backgroundColor: const Color(0xFF0D47A1), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                     onPressed: () async {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Abriendo emisor de PDF... ⏳')));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generando comprobante... ⏳')));
                       await _generarYCompartirPDF(context);
                     },
-                    icon: const Icon(Icons.picture_as_pdf),
+                    icon: const Icon(Icons.share),
                     label: const Text("COMPARTIR COMPROBANTE", style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ],

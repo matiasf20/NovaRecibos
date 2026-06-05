@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // 🚀 IMPORTACIÓN AGREGADA
 import 'pantalla_conductor_independiente.dart'; 
 import 'pantalla_registro_persona.dart';
+import 'package:flutter/foundation.dart';
 
 class PantallaLoginPersona extends StatefulWidget {
   const PantallaLoginPersona({super.key});
@@ -26,6 +27,51 @@ class _PantallaLoginPersonaState extends State<PantallaLoginPersona> {
   void initState() {
     super.initState();
     _cargarCredencialesGuardadas();
+    
+    // 🚀 NUEVO: LLAMADA AL CARTEL DE IPHONE
+    Future.delayed(const Duration(seconds: 1), () {
+      if (mounted) {
+        _mostrarInstruccionesInstalacionIOS();
+      }
+    });
+  }
+
+  // 🚀 NUEVO: FUNCIÓN DEL CARTEL DE IPHONE
+  void _mostrarInstruccionesInstalacionIOS() {
+    if (kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Text(
+              "¡Instala NovaRecibos!",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+            ),
+            content: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Para una experiencia nativa y más rápida, instala la app en tu iPhone:",
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(height: 20),
+                Text("1. Toca el ícono de Compartir 📤 en la barra inferior de Safari."),
+                SizedBox(height: 10),
+                Text("2. Selecciona 'Agregar a inicio' 📱."),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Entendido"),
+              ),
+            ],
+          );
+        },
+      );
+    }
   }
 
   // Carga los datos si el usuario activó "Recuérdame" antes
@@ -65,15 +111,16 @@ class _PantallaLoginPersonaState extends State<PantallaLoginPersona> {
         if (doc.exists) {
           final data = doc.data() as Map<String, dynamic>;
           
+          // 🚀 BLINDAJE CONTRA ERRORES "MINIFIED": .toString() en todas las variables
           final misDatos = DatosEmpresa(
-            nombreConductor: data['nombre'] ?? 'Chofer',
-            nombreEmpresa: data['empresa_nombre'] ?? 'PARTICULAR',
-            rutEmpresa: data['rut_empresa'] ?? '',
-            celular: data['celular_contacto'] ?? '',
+            nombreConductor: data['nombre']?.toString() ?? 'Chofer',
+            nombreEmpresa: data['empresa_nombre']?.toString() ?? 'PARTICULAR',
+            rutEmpresa: data['rut_empresa']?.toString() ?? '',
+            celular: data['celular_contacto']?.toString() ?? '',
             correo: correo,
-            patente: data['patente'] ?? '',
-            sitioWeb: data['sitio_web'] ?? '',
-            rutaLogo: data['ruta_logo'],
+            patente: data['patente']?.toString() ?? '',
+            sitioWeb: data['sitio_web']?.toString() ?? '',
+            rutaLogo: data['ruta_logo']?.toString(),
           );
 
           // 🚀 PIEZA C: GUARDAR O BORRAR MEMORIA SEGÚN EL CHECKBOX
@@ -99,13 +146,24 @@ class _PantallaLoginPersonaState extends State<PantallaLoginPersona> {
           _mostrarAlerta("Este correo no pertenece a un Conductor Particular.");
         }
       }
-    } on FirebaseAuthException catch (e) {
+} on FirebaseAuthException catch (e) {
       String mensaje = "Error al iniciar sesión.";
       if (e.code == 'user-not-found') mensaje = "Usuario no encontrado.";
       if (e.code == 'wrong-password') mensaje = "Contraseña incorrecta.";
+      if (e.code == 'invalid-credential') mensaje = "Credenciales inválidas.";
       _mostrarAlerta(mensaje);
+      
+    // 🚀 NUEVO: ATRAPAMOS ERRORES DE LA BASE DE DATOS FIRESTORE
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        _mostrarAlerta("Permiso denegado: Revisa las reglas de Firestore.");
+      } else {
+        _mostrarAlerta("Error de base de datos: ${e.message}");
+      }
+      
+    // 🚀 ATRAPAMOS CUALQUIER OTRA COSA SIN CRASHEAR
     } catch (e) {
-      _mostrarAlerta("Error al cargar datos: $e");
+      _mostrarAlerta("Verifica tus credenciales y conexión.");
     } finally {
       if (mounted) {
         setState(() { _cargando = false; });
@@ -198,7 +256,7 @@ class _PantallaLoginPersonaState extends State<PantallaLoginPersona> {
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                       ),
-                      const SizedBox(height: 16), // Espacio ajustado
+                      const SizedBox(height: 16),
 
                       // 🚀 PIEZA B: CHECKBOX RECUÉRDAME
                       Row(

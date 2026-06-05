@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously, avoid_print
 import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/foundation.dart'; // 🚀 IMPORTACIÓN NECESARIA PARA kIsWeb
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -26,7 +27,8 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
   final _patenteController = TextEditingController(); 
   final _webController = TextEditingController(); 
 
-  String? _rutaLogo;
+  // 🚀 CAMBIO CLAVE: Usamos XFile en lugar de un simple texto de ruta
+  XFile? _imagenSeleccionada;
   bool _cargando = false;
   bool _ocultarPassword = true;
 
@@ -34,7 +36,7 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
     final ImagePicker picker = ImagePicker();
     final XFile? imagen = await picker.pickImage(source: ImageSource.gallery, imageQuality: 40);
     if (imagen != null) {
-      setState(() { _rutaLogo = imagen.path; });
+      setState(() { _imagenSeleccionada = imagen; });
     }
   }
 
@@ -58,12 +60,12 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
       );
 
       String? logoGuardar;
-      if (_rutaLogo != null) {
+      if (_imagenSeleccionada != null) {
         try {
-          File archivoImagen = File(_rutaLogo!);
-          List<int> bytesImagen = await archivoImagen.readAsBytes();
+          // 🚀 SOLUCIÓN UNIVERSAL: readAsBytes funciona en Web, iOS y Android
+          List<int> bytesImagen = await _imagenSeleccionada!.readAsBytes();
           logoGuardar = base64Encode(bytesImagen);
-        } catch (e) { print(e); }
+        } catch (e) { print("Error al convertir imagen: $e"); }
       }
 
       await FirebaseFirestore.instance.collection('conductores_independientes').doc(_emailController.text.trim()).set({
@@ -186,23 +188,21 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
                             Stack(
                               alignment: Alignment.center,
                               children: [
- Container(
+                                Container(
                                   width: 110,
                                   height: 110,
-                                  // 🚀 Añadimos un padding (margen interno) para que el logo respire y no toque la línea azul
                                   padding: const EdgeInsets.all(6), 
                                   decoration: BoxDecoration(
-                                    color: Colors.white, // Fondo siempre blanco por si el logo es transparente
+                                    color: Colors.white,
                                     shape: BoxShape.circle,
                                     border: Border.all(color: const Color(0xFF0D47A1), width: 2),
                                   ),
                                   clipBehavior: Clip.hardEdge,
-                                  child: _rutaLogo != null
-                                      ? Image.file(
-                                          File(_rutaLogo!), 
-                                          // 🚀 LA CLAVE: Ajuste automático universal
-                                          fit: BoxFit.contain, 
-                                        )
+                                  child: _imagenSeleccionada != null
+                                      // 🚀 AQUÍ APLICAMOS LA LÓGICA INTELIGENTE DE WEB VS MÓVIL
+                                      ? (kIsWeb 
+                                          ? Image.network(_imagenSeleccionada!.path, fit: BoxFit.contain)
+                                          : Image.file(File(_imagenSeleccionada!.path), fit: BoxFit.contain))
                                       : const Icon(Icons.add_photo_alternate_outlined, size: 50, color: Color(0xFF0D47A1)),
                                 ),
                                 Positioned(
@@ -226,15 +226,12 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
                       const SizedBox(height: 20),
                       _buildField(label: "Nombre de tu Empresa / Fantasia", controller: _empresaController, icon: Icons.business_outlined),
                       const SizedBox(height: 20),
-                      
-                      // 🚀 EL RUT AHORA TIENE EL FORMATEADOR APLICADO
                       _buildField(
                         label: "RUT Personal / Empresa",  
                         controller: _rutController, 
                         icon: Icons.badge_outlined, 
                         formatters: [RutFormatter(), LengthLimitingTextInputFormatter(12)]
                       ),
-                      
                       const SizedBox(height: 20),
                       Row(
                         children: [
@@ -287,10 +284,9 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
 }
 
 // -------------------------------------------------------------------------
-// 🚀 CLASES DE FORMATEO COMPLETAMENTE SEPARADAS DE LA CLASE PRINCIPAL
+// 🚀 CLASES DE FORMATEO
 // -------------------------------------------------------------------------
 
-// 🛡️ REGLA ESTRICTA DE RUT
 class RutFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
@@ -319,7 +315,6 @@ class RutFormatter extends TextInputFormatter {
   }
 }
 
-// 🛡️ REGLA ESTRICTA DE PATENTE
 class FormateadorPatenteEstricto extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
