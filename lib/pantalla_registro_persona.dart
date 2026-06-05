@@ -1,7 +1,5 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously, avoid_print
-import 'dart:io';
 import 'dart:convert';
-import 'package:flutter/foundation.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -27,7 +25,7 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
   final _patenteController = TextEditingController(); 
   final _webController = TextEditingController(); 
 
-  Uint8List? _bytesImagenWeb; // 🚀 COMPATIBILIDAD ABSOLUTA CON SAFARI IPHONE
+  Uint8List? _bytesImagenWeb; 
   bool _cargando = false;
   bool _ocultarPassword = true;
 
@@ -199,7 +197,6 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
                                   ),
                                   clipBehavior: Clip.hardEdge,
                                   child: _bytesImagenWeb != null
-                                      // 🚀 RENDIMIENTO INSTANTÁNEO EN MÓVIL Y SAFARI WEB
                                       ? Image.memory(_bytesImagenWeb!, fit: BoxFit.contain)
                                       : const Icon(Icons.add_photo_alternate_outlined, size: 50, color: Color(0xFF0D47A1)),
                                 ),

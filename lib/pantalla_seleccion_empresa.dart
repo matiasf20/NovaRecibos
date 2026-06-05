@@ -3,17 +3,15 @@ import 'package:flutter/material.dart';
 import 'pantalla_login_conductor_empresa.dart'; 
 import 'pantalla_login_admin.dart';
 
-// O como se llame tu archivo de login de admin
 class PantallaSeleccionEmpresa extends StatelessWidget {
   const PantallaSeleccionEmpresa({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA), // Fondo gris ultra claro unificado
+      backgroundColor: const Color(0xFFF5F7FA),
       body: Column(
         children: [
-          // 🟦 HEADER AZUL CURVA (IDÉNTICO A LOGIN Y REGISTRO)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.only(top: 60, left: 16, right: 16, bottom: 40),
@@ -53,7 +51,6 @@ class PantallaSeleccionEmpresa extends StatelessWidget {
             ),
           ),
 
-          // ⬜ CONTENEDOR DE TARJETA FLOTANTE (OPCIONES DE MENÚ - FOTO 2)
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
@@ -61,18 +58,16 @@ class PantallaSeleccionEmpresa extends StatelessWidget {
                 children: [
                   const SizedBox(height: 10),
                   
-                  // 👔 OPCIÓN 1: ADMINISTRADOR
                   _buildMenuCard(
                     context: context,
                     titulo: "Acceso Administrador",
                     descripcion: "Control de flotas, finanzas, ranking y registro de nuevos choferes.",
                     icono: Icons.person_pin_rounded,
-                    destino: const PantallaLoginAdmin(), 
+                    destino: PantallaLoginAdmin(), // 🚀 CORREGIDO: Removido 'const' para que compile en Web
                   ),
                   
                   const SizedBox(height: 24),
 
-                  // 🚗 OPCIÓN 2: CONDUCTOR DE LA EMPRESA
                   _buildMenuCard(
                     context: context,
                     titulo: "Acceso Conductor",
@@ -89,7 +84,6 @@ class PantallaSeleccionEmpresa extends StatelessWidget {
     );
   }
 
-  // ✨ CONSTRUCTOR DE TARJETAS OPTIMIZADO CON TRATAMIENTO PREMIUM DE CLICS
   Widget _buildMenuCard({
     required BuildContext context, 
     required String titulo, 
@@ -120,7 +114,6 @@ class PantallaSeleccionEmpresa extends StatelessWidget {
           ),
           child: Row(
             children: [
-              // Contenedor circular/cuadrado suave para el ícono de la función
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
@@ -131,7 +124,6 @@ class PantallaSeleccionEmpresa extends StatelessWidget {
               ),
               const SizedBox(width: 18),
               
-              // Textos descriptivos de la acción
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

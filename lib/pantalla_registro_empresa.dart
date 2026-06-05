@@ -1,7 +1,5 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously, avoid_print
-import 'dart:io';
 import 'dart:convert'; 
-import 'package:flutter/foundation.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; 
 import 'package:image_picker/image_picker.dart';
@@ -25,7 +23,7 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  Uint8List? _bytesImagenWeb; // 🚀 FIJA EL LOGO PARA DISPOSITIVOS APPLE SAFARI
+  Uint8List? _bytesImagenWeb; 
   bool _cargando = false;
   bool _ocultarPassword = true;
 

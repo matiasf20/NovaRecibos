@@ -1,5 +1,4 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously, avoid_print
-import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart'; 
 import 'package:flutter/material.dart';
@@ -53,7 +52,6 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
         }
         if (doc.exists) {
           final data = doc.data() as Map<String, dynamic>;
-          // 🚀 BLINDAJE DE TIPOS DE TEXTO CONTRA ERRORES MINIFIED DE COMPILACIÓN JAVASCRIPT
           _nombreEmpresa = data['empresa_nombre']?.toString() ?? data['nombre']?.toString() ?? _nombreEmpresa;
           _rutEmpresa = data['rut_empresa']?.toString() ?? data['rut']?.toString() ?? "";
           _celularEmpresa = data['celular_contacto']?.toString() ?? data['celular']?.toString() ?? "";
@@ -63,6 +61,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
       }
       setState(() { _cargandoDatos = false; });
     } catch (e) {
+      print("Aviso de carga: $e");
       setState(() { _cargandoDatos = false; });
     }
   }
@@ -71,7 +70,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text("Cerrar Sesión Admin", style: TextStyle(color: Color(0xFF0D47A1), fontWeight: FontWeight.bold)),
           content: const Text("¿Estás seguro de que deseas salir del Panel de Control Corporativo?"),
@@ -122,24 +121,13 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
 
       if (_logoUrl != null && _logoUrl!.isNotEmpty) {
         try {
-          if (_logoUrl!.startsWith('http')) {
-            final request = await HttpClient().getUrl(Uri.parse(_logoUrl!));
-            final response = await request.close();
-            final List<int> bytes = [];
-            await for (var chunk in response) { bytes.addAll(chunk); }
-            imagenLogo = pw.MemoryImage(Uint8List.fromList(bytes));
-          } else if (_logoUrl!.length > 500) {
+          if (_logoUrl!.length > 500) {
             final bytes = base64Decode(_logoUrl!);
             imagenLogo = pw.MemoryImage(Uint8List.fromList(bytes));
-          } else {
-            if (!kIsWeb) {
-              final file = File(_logoUrl!);
-              if (file.existsSync()) {
-                imagenLogo = pw.MemoryImage(file.readAsBytesSync());
-              }
-            }
           }
-        } catch (e) { print("Error logo pdf: $e"); }
+        } catch (_) {
+          print("Aviso: No se pudo procesar el formato del logo en el PDF.");
+        }
       }
 
       pdf.addPage(
@@ -162,7 +150,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
                           crossAxisAlignment: pw.CrossAxisAlignment.center,
                           children: [
                             pw.Text("COMPROBANTE SERVICIO DE TRANSPORTE", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-                            pw.SizedBox(height: 5),
+                            pw.SizedBox(height: 5), 
                             pw.Text(_nombreEmpresa.toUpperCase(), style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
                             if (_rutEmpresa.isNotEmpty) pw.Text("RUT: $_rutEmpresa", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
                             pw.SizedBox(height: 2),
@@ -203,7 +191,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
         ),
       );
       return pdf.save();
-    } catch (e) {
+    } catch (_) { 
       return null;
     }
   }
@@ -211,7 +199,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
   void _abrirOpcionesPDF(Map<String, dynamic> item) async {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Procesando documento... ⏳"), duration: Duration(milliseconds: 800)));
     
-    final Uint8List? pdfBytes = await _generarBytesPDFAdmin(item);
+    final pdfBytes = await _generarBytesPDFAdmin(item);
     if (pdfBytes == null) return;
     if (!mounted) return;
 
@@ -230,7 +218,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
               title: const Text("Ver / Imprimir PDF"),
               onTap: () async {
                 Navigator.pop(context);
-                await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => pdfBytes);
+                await Printing.layoutPdf(onLayout: (format) async => pdfBytes);
               },
             ),
             ListTile(
@@ -397,7 +385,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
           email: email,
           password: clave,
         );
-      } finaly {
+      } finally {
         await secondaryApp.delete();
       }
 
@@ -430,12 +418,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
       if (kIsWeb) {
         imagenFinal = const Icon(Icons.business, color: Color(0xFF0D47A1), size: 24);
       } else {
-        final file = File(ruta);
-        if (file.existsSync()) {
-          imagenFinal = Image.file(file, fit: BoxFit.contain);
-        } else {
-          imagenFinal = const Icon(Icons.business, color: Color(0xFF0D47A1), size: 24);
-        }
+         imagenFinal = const Icon(Icons.business, color: Color(0xFF0D47A1), size: 24);
       }
     }
 
@@ -617,9 +600,6 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
           final monto = (data['monto'] ?? 0).toDouble();
           final fecha = DateTime.parse(data['fecha'] ?? ahora.toIso8601String());
 
-          if (fecha.year == ahora.year && fecha.month == ahora.month && fecha.day == telemetryDay) {
-             // Eliminado typo innecesario de variable heredada
-          }
           if (fecha.year == ahora.year && fecha.month == ahora.month && fecha.day == ahora.day) {
             totalDia += monto;
           }
