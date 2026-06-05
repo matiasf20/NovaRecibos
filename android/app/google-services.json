@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "897930442604",
+    "project_id": "novarecibos-86729",
+    "storage_bucket": "novarecibos-86729.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:897930442604:android:b77d31ed99b4972e61a549",
+        "android_client_info": {
+          "package_name": "com.example.generador_de_recibos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA6IyDcN8-q9mK5sUPRyYOAYKACIitFkeI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

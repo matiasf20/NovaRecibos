@@ -1,0 +1,54 @@
+name: generador_de_recibos
+description: "Aplicación premium para la generación de recibos y gestión de flotas de transporte."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  firebase_core: ^4.10.0
+  firebase_auth: ^6.5.2
+  cloud_firestore: ^6.5.0
+  firebase_storage: ^13.4.2 # 👈 ¡REINCORPORADO! Soluciona todos los errores de 'Reference', 'UploadTask' y 'TaskSnapshot'
+  image_picker: ^1.0.7
+  intl: ^0.20.2
+  pdf: ^3.10.7
+  path_provider: ^2.1.1
+  share_plus: ^13.1.0
+  shared_preferences: ^2.5.5
+  csv: ^8.0.0
+  open_filex: ^4.7.0
+  universal_html: ^2.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_native_splash: ^2.4.7
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+
+  # Declaración de assets segura y limpia sin duplicados nativos
+  assets:
+    - assets/
+    - assets/logo.png
+    - assets/pagos.jpg
+
+flutter_native_splash:
+  color: "#0D47A1"
+  image: "assets/logo.png"
+  android_12:
+    color: "#0D47A1"
+    image: "assets/logo.png"
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/logo.png"
+  min_sdk_android: 21
