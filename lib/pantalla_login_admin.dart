@@ -1,5 +1,4 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously
-// 🚀 NECESARIO PARA kIsWeb
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -76,7 +75,6 @@ class _PantallaLoginAdminState extends State<PantallaLoginAdmin> {
         }
       }
 
-      // 🚀 ESCUDO DE PERSISTENCIA PARA IPHONE (Evita caídas si Safari bloquea el LocalStorage)
       try {
         SharedPreferences prefs = await SharedPreferences.getInstance();
         if (_recordarme) {
@@ -89,22 +87,26 @@ class _PantallaLoginAdminState extends State<PantallaLoginAdmin> {
           await prefs.setBool('recordarme_activado_admin', false);
         }
       } catch (e) {
-        debugPrint("Error al conectar con la base de datos: $e");
+        debugPrint("Error persistencia: $e");
       }
 
       _mostrarAlerta("¡Ingreso exitoso al Panel Administrador de Flota!");
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-          builder: (context) => const PantallaAdminDashboard(),
-        ),
+        MaterialPageRoute(builder: (context) => const PantallaAdminDashboard()),
       );
 
     } on FirebaseAuthException catch (e) {
-      _mostrarAlerta(e.message ?? "Error de ingreso. Verifica tus credenciales.");
+      String mensaje = "Error al ingresar. Verifica tus credenciales.";
+      if (e.code == 'user-not-found') mensaje = "Administrador no encontrado.";
+      if (e.code == 'wrong-password') mensaje = "Contraseña incorrecta.";
+      if (e.code == 'invalid-credential') mensaje = "Credenciales inválidas.";
+      _mostrarAlerta(mensaje);
+    } on FirebaseException catch (e) {
+      _mostrarAlerta("Fallo de Base de datos: Permiso Denegado.");
     } catch (e) {
-      _mostrarAlerta("Error al conectar con la base de datos: $e");
+      _mostrarAlerta("Verifica tus credenciales y tu conexión a internet.");
     } finally {
       if (mounted) {
         setState(() { _cargando = false; });
@@ -128,10 +130,7 @@ class _PantallaLoginAdminState extends State<PantallaLoginAdmin> {
               padding: const EdgeInsets.only(top: 60, left: 16, right: 16, bottom: 40),
               decoration: const BoxDecoration(
                 color: Color(0xFF0D47A1),
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(40),
-                  bottomRight: Radius.circular(40),
-                ),
+                borderRadius: BorderRadius.only(bottomLeft: Radius.circular(40), bottomRight: Radius.circular(40)),
               ),
               child: Column(
                 children: [
@@ -144,16 +143,7 @@ class _PantallaLoginAdminState extends State<PantallaLoginAdmin> {
                       const Spacer(),
                     ],
                   ),
-                  const Text(
-                    "¡Bienvenido a\nNovaRecibos!",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 34, 
-                      fontWeight: FontWeight.bold, 
-                      color: Colors.white,
-                      height: 1.1, 
-                    ),
-                  ),
+                  const Text("¡Bienvenido a\nNovaRecibos!", textAlign: TextAlign.center, style: TextStyle(fontSize: 34, fontWeight: FontWeight.bold, color: Colors.white, height: 1.1)),
                   const SizedBox(height: 8),
                   const Text("Ingreso Administrador", style: TextStyle(fontSize: 16, color: Colors.white70)),
                 ],
@@ -204,9 +194,7 @@ class _PantallaLoginAdminState extends State<PantallaLoginAdmin> {
                             value: _recordarme,
                             activeColor: const Color(0xFF0D47A1),
                             onChanged: (bool? valor) {
-                              setState(() {
-                                _recordarme = valor ?? false;
-                              });
+                              setState(() { _recordarme = valor ?? false; });
                             },
                           ),
                           const Text("Recordar mis datos", style: TextStyle(color: Colors.grey, fontSize: 14)),
@@ -230,11 +218,7 @@ class _PantallaLoginAdminState extends State<PantallaLoginAdmin> {
                         onPressed: () {
                           Navigator.push(context, MaterialPageRoute(builder: (context) => const PantallaRegistroEmpresa()));
                         },
-                        child: const Text(
-                          "¿No tienes una cuenta? Une tu empresa a NovaRecibos aquí",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Color(0xFF0D47A1), fontWeight: FontWeight.bold),
-                        ),
+                        child: const Text("¿No tienes una cuenta? Une tu empresa a NovaRecibos aquí", textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF0D47A1), fontWeight: FontWeight.bold)),
                       ),
                     ],
                   ),

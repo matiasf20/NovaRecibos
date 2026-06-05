@@ -1,7 +1,7 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously, avoid_print
 import 'dart:io';
 import 'dart:convert'; 
-import 'package:flutter/foundation.dart'; // 🚀 IMPORTACIÓN NECESARIA PARA kIsWeb
+import 'package:flutter/foundation.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; 
 import 'package:image_picker/image_picker.dart';
@@ -25,8 +25,7 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  // 🚀 CAMBIO CLAVE: Usamos XFile
-  XFile? _imagenSeleccionada;
+  Uint8List? _bytesImagenWeb; // 🚀 FIJA EL LOGO PARA DISPOSITIVOS APPLE SAFARI
   bool _cargando = false;
   bool _ocultarPassword = true;
 
@@ -34,7 +33,8 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
     final ImagePicker picker = ImagePicker();
     final XFile? imagen = await picker.pickImage(source: ImageSource.gallery, imageQuality: 40); 
     if (imagen != null) {
-      setState(() { _imagenSeleccionada = imagen; });
+      final bytes = await imagen.readAsBytes();
+      setState(() { _bytesImagenWeb = bytes; });
     }
   }
 
@@ -60,14 +60,10 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
       );
 
       String? logoComoTexto;
-      if (_imagenSeleccionada != null) {
+      if (_bytesImagenWeb != null) {
         try {
-          // 🚀 SOLUCIÓN UNIVERSAL: readAsBytes funciona en Web, iOS y Android
-          List<int> bytesImagen = await _imagenSeleccionada!.readAsBytes();
-          logoComoTexto = base64Encode(bytesImagen); 
-        } catch (e) {
-          print("Error convirtiendo logo: $e");
-        }
+          logoComoTexto = base64Encode(_bytesImagenWeb!); 
+        } catch (e) { print("Error convirtiendo logo: $e"); }
       }
 
       await FirebaseFirestore.instance.collection('empresas').doc(correoLimpio).set({
@@ -159,7 +155,6 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
                 ],
               ),
             ),
-
             Transform.translate(
               offset: const Offset(0, -20),
               child: Padding(
@@ -175,7 +170,6 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
                     children: [
                       const Text("Crear Cuenta De Administrador de Flota", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
                       const SizedBox(height: 24),
-
                       GestureDetector(
                         onTap: _seleccionarLogo,
                         child: Column(
@@ -190,11 +184,8 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
                                 border: Border.all(color: const Color(0xFF0D47A1), width: 2),
                               ),
                               clipBehavior: Clip.hardEdge,
-                              child: _imagenSeleccionada != null
-                                  // 🚀 APLICAMOS LA LÓGICA INTELIGENTE DE WEB VS MÓVIL
-                                  ? (kIsWeb 
-                                      ? Image.network(_imagenSeleccionada!.path, fit: BoxFit.contain)
-                                      : Image.file(File(_imagenSeleccionada!.path), fit: BoxFit.contain))
+                              child: _bytesImagenWeb != null
+                                  ? Image.memory(_bytesImagenWeb!, fit: BoxFit.contain)
                                   : const Icon(Icons.add_photo_alternate_outlined, size: 50, color: Color(0xFF0D47A1)),
                             ),
                             const SizedBox(height: 8),
@@ -203,13 +194,10 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
                         ),
                       ),
                       const SizedBox(height: 32),
-
                       _buildField(label: "Nombre del Administrador", controller: _adminController, icon: Icons.person_outline),
                       const SizedBox(height: 20),
-                      
                       _buildField(label: "Nombre de la Empresa", controller: _empresaController, icon: Icons.business_outlined),
                       const SizedBox(height: 20),
-                      
                       _buildField(
                         label: "RUT Empresa", 
                         controller: _rutController, 
@@ -217,21 +205,12 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
                         formatters: [RutEmpresaFormatter(), LengthLimitingTextInputFormatter(12)],
                       ),
                       const SizedBox(height: 20),
-                      
-                      _buildField(
-                        label: "Celular de Contacto", 
-                        controller: _celularController, 
-                        icon: Icons.phone_android_outlined, 
-                        esNumero: true, 
-                      ),
+                      _buildField(label: "Celular de Contacto", controller: _celularController, icon: Icons.phone_android_outlined, esNumero: true),
                       const SizedBox(height: 20),
-
                       _buildField(label: "Sitio Web (Opcional)", controller: _webController, icon: Icons.language_outlined, todoMayuscula: true), 
                       const SizedBox(height: 20),
-                      
                       _buildField(label: "Correo Electrónico Admin", controller: _emailController, icon: Icons.email_outlined),
                       const SizedBox(height: 20),
-
                       TextField(
                         controller: _passwordController,
                         obscureText: _ocultarPassword,
@@ -246,7 +225,6 @@ class _PantallaRegistroEmpresaState extends State<PantallaRegistroEmpresa> {
                         ),
                       ),
                       const SizedBox(height: 36),
-
                       _cargando
                         ? const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0D47A1)))
                         : ElevatedButton(
@@ -289,9 +267,6 @@ class RutEmpresaFormatter extends TextInputFormatter {
       }
     }
     String finalTxt = body.isEmpty ? dv : '$formattedBody-$dv';
-    return TextEditingValue(
-      text: finalTxt,
-      selection: TextSelection.collapsed(offset: finalTxt.length),
-    );
+    return TextEditingValue(text: finalTxt, selection: TextSelection.collapsed(offset: finalTxt.length));
   }
 }

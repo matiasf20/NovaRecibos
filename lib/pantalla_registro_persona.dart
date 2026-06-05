@@ -1,7 +1,7 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously, avoid_print
 import 'dart:io';
 import 'dart:convert';
-import 'package:flutter/foundation.dart'; // 🚀 IMPORTACIÓN NECESARIA PARA kIsWeb
+import 'package:flutter/foundation.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -27,8 +27,7 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
   final _patenteController = TextEditingController(); 
   final _webController = TextEditingController(); 
 
-  // 🚀 CAMBIO CLAVE: Usamos XFile en lugar de un simple texto de ruta
-  XFile? _imagenSeleccionada;
+  Uint8List? _bytesImagenWeb; // 🚀 COMPATIBILIDAD ABSOLUTA CON SAFARI IPHONE
   bool _cargando = false;
   bool _ocultarPassword = true;
 
@@ -36,7 +35,10 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
     final ImagePicker picker = ImagePicker();
     final XFile? imagen = await picker.pickImage(source: ImageSource.gallery, imageQuality: 40);
     if (imagen != null) {
-      setState(() { _imagenSeleccionada = imagen; });
+      final bytes = await imagen.readAsBytes();
+      setState(() { 
+        _bytesImagenWeb = bytes; 
+      });
     }
   }
 
@@ -60,11 +62,9 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
       );
 
       String? logoGuardar;
-      if (_imagenSeleccionada != null) {
+      if (_bytesImagenWeb != null) {
         try {
-          // 🚀 SOLUCIÓN UNIVERSAL: readAsBytes funciona en Web, iOS y Android
-          List<int> bytesImagen = await _imagenSeleccionada!.readAsBytes();
-          logoGuardar = base64Encode(bytesImagen);
+          logoGuardar = base64Encode(_bytesImagenWeb!);
         } catch (e) { print("Error al convertir imagen: $e"); }
       }
 
@@ -198,11 +198,9 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
                                     border: Border.all(color: const Color(0xFF0D47A1), width: 2),
                                   ),
                                   clipBehavior: Clip.hardEdge,
-                                  child: _imagenSeleccionada != null
-                                      // 🚀 AQUÍ APLICAMOS LA LÓGICA INTELIGENTE DE WEB VS MÓVIL
-                                      ? (kIsWeb 
-                                          ? Image.network(_imagenSeleccionada!.path, fit: BoxFit.contain)
-                                          : Image.file(File(_imagenSeleccionada!.path), fit: BoxFit.contain))
+                                  child: _bytesImagenWeb != null
+                                      // 🚀 RENDIMIENTO INSTANTÁNEO EN MÓVIL Y SAFARI WEB
+                                      ? Image.memory(_bytesImagenWeb!, fit: BoxFit.contain)
                                       : const Icon(Icons.add_photo_alternate_outlined, size: 50, color: Color(0xFF0D47A1)),
                                 ),
                                 Positioned(
@@ -283,19 +281,13 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
   }
 }
 
-// -------------------------------------------------------------------------
-// 🚀 CLASES DE FORMATEO
-// -------------------------------------------------------------------------
-
 class RutFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
     String text = newValue.text.replaceAll(RegExp(r'[^\dkK]'), '');
     if (text.isEmpty) return newValue.copyWith(text: '');
-
     String dv = text.substring(text.length - 1).toUpperCase();
     String body = text.substring(0, text.length - 1);
-
     String formattedBody = '';
     int count = 0;
     for (int i = body.length - 1; i >= 0; i--) {
@@ -306,12 +298,8 @@ class RutFormatter extends TextInputFormatter {
         count = 0;
       }
     }
-
     String finalTxt = body.isEmpty ? dv : '$formattedBody-$dv';
-    return TextEditingValue(
-      text: finalTxt,
-      selection: TextSelection.collapsed(offset: finalTxt.length),
-    );
+    return TextEditingValue(text: finalTxt, selection: TextSelection.collapsed(offset: finalTxt.length));
   }
 }
 
@@ -320,16 +308,11 @@ class FormateadorPatenteEstricto extends TextInputFormatter {
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
     String text = newValue.text.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
     if (text.length > 6) text = text.substring(0, 6);
-    
     String formatted = '';
     for (int i = 0; i < text.length; i++) {
       if (i == 4) formatted += '-';
       formatted += text[i];
     }
-    
-    return TextEditingValue(
-      text: formatted,
-      selection: TextSelection.collapsed(offset: formatted.length),
-    );
+    return TextEditingValue(text: formatted, selection: TextSelection.collapsed(offset: formatted.length));
   }
 }

@@ -1,10 +1,11 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously
+import 'package:flutter/foundation.dart'; // 🚀 NECESARIO PARA defaultTargetPlatform y kIsWeb
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // 🚀 IMPORTACIÓN DE MEMORIA
+import 'package:shared_preferences/shared_preferences.dart'; 
 import 'pantalla_login_persona.dart'; 
 import 'pantalla_seleccion_empresa.dart'; 
-import 'dart:io'; // 🚀 Para cerrar la app en iOS
-import 'package:flutter/services.dart'; // 🚀 Para cerrar la app en Android
+import 'dart:io' as io; // 🚀 Alias seguro para evitar colisiones en compilación web
+import 'package:flutter/services.dart'; 
 
 class PantallaBienvenida extends StatefulWidget {
   const PantallaBienvenida({super.key});
@@ -20,7 +21,7 @@ class _PantallaBienvenidaState extends State<PantallaBienvenida> {
   void initState() {
     super.initState();
     _relojDeCarga();
-    _verificarTerminos(); // 🚀 EJECUTA LOS TÉRMINOS AL ENTRAR
+    _verificarTerminos(); 
   }
 
   void _relojDeCarga() async {
@@ -32,8 +33,6 @@ class _PantallaBienvenidaState extends State<PantallaBienvenida> {
     }
   }
 
-  
-// 🚀 LÓGICA DE TÉRMINOS Y CONDICIONES (Con validación de lectura)
   Future<void> _verificarTerminos() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     bool aceptados = prefs.getBool('terminos_aceptados') ?? false;
@@ -46,14 +45,11 @@ class _PantallaBienvenidaState extends State<PantallaBienvenida> {
         context: context,
         barrierDismissible: false, 
         builder: (context) {
-          // 🚀 Variables de control para esta ventana
           bool botonesActivados = false;
           final ScrollController scrollController = ScrollController();
 
           return StatefulBuilder(
             builder: (context, setStateDialog) {
-              
-              // 🚀 Escuchador que detecta cuándo llegas al final del texto
               scrollController.addListener(() {
                 if (scrollController.position.pixels >= scrollController.position.maxScrollExtent - 10) {
                   if (!botonesActivados) {
@@ -77,9 +73,9 @@ class _PantallaBienvenidaState extends State<PantallaBienvenida> {
                   width: double.maxFinite,
                   height: 400, 
                   child: SingleChildScrollView(
-                    controller: scrollController, // 🚀 Conectamos el detector de lectura aquí
+                    controller: scrollController, 
                     child: const Text(
-                      "TÉRMINOS DE SERVICIO Y POLÍTICA DE PRIVACIDAD\n\n"
+                      "T TÉRMINOS DE SERVICIO Y POLÍTICA DE PRIVACIDAD\n\n"
                       "Última actualización: Junio 2026\n\n"
                       "1. ACEPTACIÓN DE LOS TÉRMINOS\n"
                       "Al acceder y utilizar NovaRecibos, usted acepta estar sujeto a estos Términos de Servicio y a nuestra Política de Privacidad. Si no está de acuerdo, le rogamos no utilizar la plataforma.\n\n"
@@ -101,30 +97,28 @@ class _PantallaBienvenidaState extends State<PantallaBienvenida> {
                 ),
                 actionsAlignment: MainAxisAlignment.spaceBetween,
                 actions: [
-                  // 🚀 BOTÓN RECHAZAR (ROJO)
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: botonesActivados ? Colors.red : Colors.grey.shade300,
                       foregroundColor: botonesActivados ? Colors.white : Colors.grey.shade600,
-                      elevation: botonesActivados ? 2 : 0,
                     ),
                     onPressed: botonesActivados ? () {
-                      // Cierra la aplicación dependiendo del sistema operativo
-                      if (Platform.isAndroid) {
-                        SystemNavigator.pop();
-                      } else if (Platform.isIOS) {
-                        exit(0);
+                      if (kIsWeb) {
+                        Navigator.pop(context);
+                      } else {
+                        if (defaultTargetPlatform == TargetPlatform.android) {
+                          SystemNavigator.pop();
+                        } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+                          io.exit(0);
+                        }
                       }
-                    } : null, // null desactiva el botón
+                    } : null,
                     child: const Text("RECHAZAR Y SALIR", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
-                  
-                  // 🚀 BOTÓN ACEPTAR (AZUL)
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: botonesActivados ? const Color(0xFF0D47A1) : Colors.grey.shade300,
                       foregroundColor: botonesActivados ? Colors.white : Colors.grey.shade600,
-                      elevation: botonesActivados ? 2 : 0,
                     ),
                     onPressed: botonesActivados ? () async {
                       await prefs.setBool('terminos_aceptados', true);
@@ -179,17 +173,10 @@ class _PantallaBienvenidaState extends State<PantallaBienvenida> {
               const SizedBox(height: 32), 
               const Text(
                 "¡Bienvenido a NovaRecibos!",
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                  letterSpacing: 1.2,
-                ),
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2),
               ),
               const SizedBox(height: 8),
-              const CircularProgressIndicator(
-                color: Colors.white70,
-              ), 
+              const CircularProgressIndicator(color: Colors.white70), 
             ],
           ), 
         ),
@@ -202,11 +189,7 @@ class _PantallaBienvenidaState extends State<PantallaBienvenida> {
         height: double.infinity,
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              Color(0xFF0D47A1), 
-              Color(0xFF1565C0), 
-              Colors.white       
-            ],
+            colors: [Color(0xFF0D47A1), Color(0xFF1565C0), Colors.white],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             stops: [0.0, 0.5, 1.0], 
@@ -222,19 +205,10 @@ class _PantallaBienvenidaState extends State<PantallaBienvenida> {
                 children: [
                   _dibujarLogoReal(tamano: 160), 
                   const SizedBox(height: 36),
-
-                  const Text(
-                    "NovaRecibos", 
-                    style: TextStyle(fontSize: 38, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2)
-                  ),
+                  const Text("NovaRecibos", style: TextStyle(fontSize: 38, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2)),
                   const SizedBox(height: 8),
-                  const Text(
-                    "Gestión inteligente, particular o empresa, ¡tú eliges cómo usarlo!", 
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
-                    textAlign: TextAlign.center,
-                  ),
+                  const Text("Gestión inteligente, particular o empresa, ¡tú eliges cómo usarlo!", style: TextStyle(color: Colors.white70, fontSize: 14), textAlign: TextAlign.center),
                   const SizedBox(height: 52),
-
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(double.infinity, 56),
@@ -243,15 +217,11 @@ class _PantallaBienvenidaState extends State<PantallaBienvenida> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       elevation: 3,
                     ),
-                    onPressed: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => const PantallaLoginPersona()));
-                    },
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const PantallaLoginPersona())),
                     icon: const Icon(Icons.person_outline, size: 24),
                     label: const Text("ACCESO PERSONA", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   ),
-                  
                   const SizedBox(height: 20),
-
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(double.infinity, 56),
@@ -260,9 +230,7 @@ class _PantallaBienvenidaState extends State<PantallaBienvenida> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       elevation: 3,
                     ),
-                    onPressed: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => const PantallaSeleccionEmpresa()));
-                    },
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const PantallaSeleccionEmpresa())),
                     icon: const Icon(Icons.business, size: 24),
                     label: const Text("ACCESO EMPRESA", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   ),

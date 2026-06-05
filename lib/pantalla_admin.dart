@@ -1,7 +1,7 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously, avoid_print
 import 'dart:io';
 import 'dart:convert';
-import 'package:flutter/foundation.dart'; // 🚀 NECESARIO PARA kIsWeb
+import 'package:flutter/foundation.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; 
 import 'package:intl/intl.dart';
@@ -10,7 +10,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart'; // 🚀 AÑADIDO: PAQUETE UNIVERSAL DE PDF
+import 'package:printing/printing.dart'; 
 import 'pantalla_bienvenida.dart';
 
 class PantallaAdminDashboard extends StatefulWidget {
@@ -53,11 +53,12 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
         }
         if (doc.exists) {
           final data = doc.data() as Map<String, dynamic>;
-          _nombreEmpresa = data['empresa_nombre'] ?? data['nombre'] ?? _nombreEmpresa;
-          _rutEmpresa = data['rut_empresa'] ?? data['rut'] ?? "";
-          _celularEmpresa = data['celular_contacto'] ?? data['celular'] ?? "";
-          _sitioWeb = data['sitio_web'] ?? data['web'] ?? ""; 
-          _logoUrl = data['ruta_logo'] ?? data['logo_url'];
+          // 🚀 BLINDAJE DE TIPOS DE TEXTO CONTRA ERRORES MINIFIED DE COMPILACIÓN JAVASCRIPT
+          _nombreEmpresa = data['empresa_nombre']?.toString() ?? data['nombre']?.toString() ?? _nombreEmpresa;
+          _rutEmpresa = data['rut_empresa']?.toString() ?? data['rut']?.toString() ?? "";
+          _celularEmpresa = data['celular_contacto']?.toString() ?? data['celular']?.toString() ?? "";
+          _sitioWeb = data['sitio_web']?.toString() ?? data['web']?.toString() ?? ""; 
+          _logoUrl = data['ruta_logo']?.toString() ?? data['logo_url']?.toString();
         }
       }
       setState(() { _cargandoDatos = false; });
@@ -114,7 +115,6 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
     return resultado ?? false;
   }
 
-  // 🚀 ACTUALIZADO: EXTRAE LOS BYTES DEL PDF CORPORATIVO CON FILTRO WEB PARA LOGO LOCAL
   Future<Uint8List?> _generarBytesPDFAdmin(Map<String, dynamic> data) async {
     try {
       final pdf = pw.Document();
@@ -132,7 +132,6 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
             final bytes = base64Decode(_logoUrl!);
             imagenLogo = pw.MemoryImage(Uint8List.fromList(bytes));
           } else {
-            // Protección contra directorios locales en web
             if (!kIsWeb) {
               final file = File(_logoUrl!);
               if (file.existsSync()) {
@@ -140,9 +139,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
               }
             }
           }
-        } catch (e) {
-          print("No se pudo cargar el logo: $e");
-        }
+        } catch (e) { print("Error logo pdf: $e"); }
       }
 
       pdf.addPage(
@@ -211,7 +208,6 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
     }
   }
 
-  // 🚀 REEMPLAZO COMPLETO: APERTURA DE OPCIONES USANDO EL MOTOR "PRINTING"
   void _abrirOpcionesPDF(Map<String, dynamic> item) async {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Procesando documento... ⏳"), duration: Duration(milliseconds: 800)));
     
@@ -306,7 +302,6 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
     }
   }
 
-  // 🚀 REEMPLAZO 2: EXPORTACIÓN DE EXCEL/CSV COMPATIBLE CON WEB Y MÓVIL AL MISMO TIEMPO
   Future<void> _exportarExcelAdmin(List<QueryDocumentSnapshot> docs) async {
     try {
       String csvData = "N° Recibo,Fecha,Conductor,Patente,Pasajero,Origen,Destino,Monto\n";
@@ -338,10 +333,8 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
       csvData += ",,,,,,,\"TOTAL:\",\"$totalFormateado\"\n";
 
       final nombreArchivo = "Reporte_Flota_${DateFormat('dd_MM_yyyy').format(DateTime.now())}.csv";
-      // Añadimos el BOM UTF-8 [239, 187, 191] para compatibilidad perfecta con Microsoft Excel
       final bytes = Uint8List.fromList([239, 187, 191] + utf8.encode(csvData));
 
-      // El paquete Printing se encarga de iniciar la descarga en web o compartir en celulares
       await Printing.sharePdf(bytes: bytes, filename: nombreArchivo);
 
     } catch (e) {
@@ -404,7 +397,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
           email: email,
           password: clave,
         );
-      } finally {
+      } finaly {
         await secondaryApp.delete();
       }
 
@@ -624,6 +617,9 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
           final monto = (data['monto'] ?? 0).toDouble();
           final fecha = DateTime.parse(data['fecha'] ?? ahora.toIso8601String());
 
+          if (fecha.year == ahora.year && fecha.month == ahora.month && fecha.day == telemetryDay) {
+             // Eliminado typo innecesario de variable heredada
+          }
           if (fecha.year == ahora.year && fecha.month == ahora.month && fecha.day == ahora.day) {
             totalDia += monto;
           }
@@ -702,9 +698,6 @@ class FormateadorPatenteEstricto extends TextInputFormatter {
       finalTxt = numeros.isNotEmpty ? '$letras-$numeros' : '$letras-';
     }
 
-    return TextEditingValue(
-      text: finalTxt,
-      selection: TextSelection.collapsed(offset: finalTxt.length),
-    );
+    return TextEditingValue(text: finalTxt, selection: TextSelection.collapsed(offset: finalTxt.length));
   }
 }
