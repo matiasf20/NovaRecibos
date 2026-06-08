@@ -1,21 +1,18 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously, avoid_print
 import 'dart:io';
-import 'dart:math';
 import 'dart:convert';
-import 'package:flutter/foundation.dart'; // 🚀 NECESARIO PARA kIsWeb
+import 'package:flutter/foundation.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:printing/printing.dart'; // 🚀 PAQUETE UNIVERSAL
+import 'package:printing/printing.dart'; 
 import 'pantalla_bienvenida.dart';
+import 'package:universal_html/html.dart' as html;
 
-// 🧱 ESTRUCTURAS DE CONTROL
-// ---------------------------------------------------------------------
 class Recibo {
   final int numero;
   final String sr;
@@ -72,9 +69,6 @@ class DatosEmpresa {
   });
 }
 
-// ---------------------------------------------------------------------
-// 📋 PANEL ADAPTATIVO: INDEPENDIENTE VS FLOTA
-// ---------------------------------------------------------------------
 class PantallaInicio extends StatefulWidget {
   final DatosEmpresa datosEmpresa;
   const PantallaInicio({super.key, required this.datosEmpresa});
@@ -94,33 +88,94 @@ class _PantallaInicioState extends State<PantallaInicio> {
   void initState() {
     super.initState();
     datosEmpresaActiva = widget.datosEmpresa;
-    _cargarRecibosMemoria();
     _analizarPerfilYVinculacion();
+  }
+
+  void _escucharRecibosNube(String correoEmpresa) {
+    // 🚀 BLINDAJE: Forzamos minúsculas en el parámetro para evitar descalces con el visor
+    final String correoFiltro = correoEmpresa.trim().toLowerCase();
+    final DateTime? creationTime = FirebaseAuth.instance.currentUser?.metadata.creationTime;
+    
+    final DateTime limiteIgnorar = creationTime != null 
+        ? creationTime.subtract(const Duration(days: 1)) 
+        : DateTime(2000);
+
+    FirebaseFirestore.instance
+        .collection('recibos')
+        .where('empresa_correo', isEqualTo: correoFiltro)
+        .snapshots()
+        .listen((snapshot) {
+      List<Recibo> recibosNube = [];
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final DateTime fechaRecibo = DateTime.parse(data['fecha'] ?? DateTime.now().toIso8601String());
+
+        if (creationTime != null && fechaRecibo.isBefore(limiteIgnorar)) {
+          continue; 
+        }
+
+        recibosNube.add(Recibo(
+          numero: data['numero'] ?? 0,
+          sr: data['sr'] ?? '',
+          origen: data['origen'] ?? '',
+          destino: data['destino'] ?? '',
+          observaciones: data['observaciones'] ?? '',
+          monto: (data['monto'] ?? 0).toDouble(),
+          fecha: fechaRecibo,
+          esConvenio: data['esConvenio'] ?? false,
+          empresaPasajero: data['empresaPasajero'] ?? '',
+          mostrarLogosPago: data['mostrar_logos'] ?? data['mostrarLogosPago'] ?? true,
+        ));
+      }
+      recibosNube.sort((a, b) => b.numero.compareTo(a.numero));
+      setState(() {
+        misRecibos = recibosNube;
+      });
+    });
   }
 
   Future<void> _analizarPerfilYVinculacion() async {
     try {
+      // 🚀 UNIFICACIÓN ABSOLUTA: Aplanamos el correo de entrada a minúsculas
+      final String emailClean = widget.datosEmpresa.correo.trim().toLowerCase();
+      List<String> variaciones = [emailClean, widget.datosEmpresa.correo.trim(), widget.datosEmpresa.correo.trim().toUpperCase()];
+
+      // 1. Intentar buscar como Conductor de Empresa (Flota)
       DocumentSnapshot docFlota = await FirebaseFirestore.instance
           .collection('conductores_flota')
-          .doc(widget.datosEmpresa.correo)
+          .doc(emailClean)
           .get();
 
+      if (!docFlota.exists) {
+        // Fallback por si acaso quedó registrado con mayúsculas en el ID del documento
+        for (String variante in variaciones) {
+          DocumentSnapshot docVar = await FirebaseFirestore.instance.collection('conductores_flota').doc(variante).get();
+          if (docVar.exists) {
+            docFlota = docVar;
+            break;
+          }
+        }
+      }
+
       if (docFlota.exists) {
-        String correoAdminFlota = docFlota['empresa_correo'] ?? "";
-        
+        String correoAdminFlota = (docFlota['empresa_correo'] ?? "").toString().trim().toLowerCase();
         String nombreEmpresa = "TRANSPORTE CORPORATIVO";
         String rutEmpresa = "";
         String celularEmpresa = "";
         String sitioWeb = "";
         String? rutaLogo;
 
+        // Buscar datos de la empresa vinculada
         DocumentSnapshot docEmpresa = await FirebaseFirestore.instance
             .collection('empresas')
             .doc(correoAdminFlota)
             .get();
 
         if (!docEmpresa.exists) {
-          QuerySnapshot q = await FirebaseFirestore.instance.collection('empresas').where('correo', isEqualTo: correoAdminFlota).get();
+          QuerySnapshot q = await FirebaseFirestore.instance
+              .collection('empresas')
+              .where('correo', whereIn: [correoAdminFlota, correoAdminFlota.toUpperCase()])
+              .get();
           if (q.docs.isNotEmpty) docEmpresa = q.docs.first;
         }
 
@@ -141,38 +196,64 @@ class _PantallaInicioState extends State<PantallaInicio> {
             nombreEmpresa: nombreEmpresa,
             rutEmpresa: rutEmpresa,
             celular: celularEmpresa, 
-            correo: widget.datosEmpresa.correo,
+            correo: emailClean,
             patente: docFlota['patente'] ?? widget.datosEmpresa.patente,
             sitioWeb: sitioWeb,
             rutaLogo: rutaLogo,
           );
           _cargandoVinculo = false;
         });
+        _escucharRecibosNube(correoAdminFlota);
         return;
       } 
       
+      // 2. Si no es flota, buscar como Conductor Independiente
       DocumentSnapshot docIndep = await FirebaseFirestore.instance
           .collection('conductores_independientes')
-          .doc(widget.datosEmpresa.correo)
+          .doc(emailClean)
           .get();
 
+      Map<String, dynamic>? dataIndep;
+      bool encontradoIndep = false;
+
       if (docIndep.exists) {
-        final data = docIndep.data() as Map<String, dynamic>? ?? {};
+        dataIndep = docIndep.data() as Map<String, dynamic>;
+        encontradoIndep = true;
+      } else {
+        QuerySnapshot qIndep = await FirebaseFirestore.instance
+            .collection('conductores_independientes')
+            .where('correo', whereIn: variaciones)
+            .get();
+        if (qIndep.docs.isEmpty) {
+          qIndep = await FirebaseFirestore.instance
+              .collection('conductores_independientes')
+              .where('email', whereIn: variaciones)
+              .get();
+        }
+        if (qIndep.docs.isNotEmpty) {
+          docIndep = qIndep.docs.first;
+          dataIndep = docIndep.data() as Map<String, dynamic>;
+          encontradoIndep = true;
+        }
+      }
+
+      if (encontradoIndep && dataIndep != null) {
+        _empresaCorreoReal = emailClean;
         setState(() {
           _esFlota = false;
-          _empresaCorreoReal = widget.datosEmpresa.correo;
           datosEmpresaActiva = DatosEmpresa(
-            nombreConductor: data['nombre'] ?? widget.datosEmpresa.nombreConductor,
-            nombreEmpresa: data['empresa_nombre'] ?? data['nombre_empresa'] ?? widget.datosEmpresa.nombreEmpresa,
-            rutEmpresa: data['rut_empresa'] ?? data['rut'] ?? widget.datosEmpresa.rutEmpresa,
-            celular: data['celular_contacto'] ?? data['celular'] ?? widget.datosEmpresa.celular,
-            correo: widget.datosEmpresa.correo,
-            patente: data['patente'] ?? widget.datosEmpresa.patente,
-            sitioWeb: data['sitio_web'] ?? widget.datosEmpresa.sitioWeb,
-            rutaLogo: data['ruta_logo'] ?? widget.datosEmpresa.rutaLogo,
+            nombreConductor: dataIndep!['nombre'] ?? widget.datosEmpresa.nombreConductor,
+            nombreEmpresa: dataIndep['empresa_nombre'] ?? dataIndep['nombre_empresa'] ?? widget.datosEmpresa.nombreEmpresa,
+            rutEmpresa: dataIndep['rut_empresa'] ?? dataIndep['rut'] ?? widget.datosEmpresa.rutEmpresa,
+            celular: dataIndep['celular_contacto'] ?? dataIndep['celular'] ?? widget.datosEmpresa.celular,
+            correo: emailClean,
+            patente: dataIndep['patente'] ?? widget.datosEmpresa.patente,
+            sitioWeb: dataIndep['sitio_web'] ?? widget.datosEmpresa.sitioWeb,
+            rutaLogo: dataIndep['ruta_logo'] ?? widget.datosEmpresa.rutaLogo,
           );
           _cargandoVinculo = false;
         });
+        _escucharRecibosNube(emailClean);
       } else {
         setState(() { 
           _esFlota = false;
@@ -184,64 +265,6 @@ class _PantallaInicioState extends State<PantallaInicio> {
         _esFlota = false;
         _cargandoVinculo = false; 
       });
-    }
-  }
-
-  Future<void> _cargarRecibosMemoria() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? datosGuardados = prefs.getString('recibos_guardados_${widget.datosEmpresa.correo}');
-    if (datosGuardados != null) {
-      try {
-        final List<dynamic> listaJson = jsonDecode(datosGuardados);
-        setState(() { misRecibos = listaJson.map((json) => Recibo.fromJson(json)).toList(); });
-      } catch (e) {
-        await prefs.remove('recibos_guardados_${widget.datosEmpresa.correo}');
-      }
-    }
-  }
-
-  Future<void> _guardarRecibosMemoria() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String datosParaGuardar = jsonEncode(misRecibos.map((r) => r.toJson()).toList());
-    await prefs.setString('recibos_guardados_${widget.datosEmpresa.correo}', datosParaGuardar);
-  }
-
-  Future<void> _eliminarComprobanteDeLista(Recibo reciboAEliminar, int indiceReal) async {
-    final confirmar = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Eliminar Comprobante", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-        content: const Text("¿Estás seguro de que deseas eliminar este comprobante? Esta acción borrará el registro de tu lista y de las finanzas."),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("CANCELAR")),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text("SÍ, ELIMINAR"),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmar == true) {
-      try {
-        final q = await FirebaseFirestore.instance.collection('recibos')
-          .where('numero', isEqualTo: reciboAEliminar.numero)
-          .where('empresa_correo', isEqualTo: _empresaCorreoReal ?? datosEmpresaActiva.correo)
-          .get();
-        for (var doc in q.docs) {
-          await doc.reference.delete();
-        }
-
-        setState(() {
-          misRecibos.removeAt(indiceReal);
-        });
-        await _guardarRecibosMemoria();
-
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Comprobante eliminado con éxito.")));
-      } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al eliminar: $e")));
-      }
     }
   }
 
@@ -273,7 +296,135 @@ class _PantallaInicioState extends State<PantallaInicio> {
     return resultado ?? false;
   }
 
-  // 🚀 CAMBIO 1: EXPORTACIÓN DE CSV USANDO EL PAQUETE "PRINTING" (DirectRenderer)
+  Future<void> _eliminarComprobanteDeLista(Recibo reciboAEliminar, int index) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Eliminar Comprobante", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+        content: const Text("¿Estás seguro de que deseas eliminar este comprobante? Esta acción borrará el registro permanentemente de la nube."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("CANCELAR")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("SÍ, ELIMINAR"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar == true) {
+      try {
+        final String correoFiltro = (_empresaCorreoReal ?? datosEmpresaActiva.correo).trim().toLowerCase();
+        final q = await FirebaseFirestore.instance.collection('recibos')
+          .where('numero', isEqualTo: reciboAEliminar.numero)
+          .where('empresa_correo', isEqualTo: correoFiltro)
+          .get();
+        for (var doc in q.docs) {
+          await doc.reference.delete();
+        }
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Comprobante eliminado con éxito.")));
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al eliminar: $e")));
+      }
+    }
+  }
+
+  void _abrirDialogoEditarPerfil() {
+    final nombreCtrl = TextEditingController(text: datosEmpresaActiva.nombreConductor);
+    final empresaCtrl = TextEditingController(text: datosEmpresaActiva.nombreEmpresa);
+    final rutCtrl = TextEditingController(text: datosEmpresaActiva.rutEmpresa);
+    final celularCtrl = TextEditingController(text: datosEmpresaActiva.celular);
+    final patenteCtrl = TextEditingController(text: datosEmpresaActiva.patente);
+    final webCtrl = TextEditingController(text: datosEmpresaActiva.sitioWeb);
+    String? nuevoLogoBase64 = datosEmpresaActiva.rutaLogo;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text("Editar Datos de Empresa", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: nombreCtrl, decoration: const InputDecoration(labelText: "Nombre Conductor")),
+                if (!_esFlota) ...[
+                  TextField(controller: empresaCtrl, decoration: const InputDecoration(labelText: "Nombre Empresa")),
+                  TextField(controller: rutCtrl, decoration: const InputDecoration(labelText: "RUT Empresa")),
+                  TextField(controller: celularCtrl, decoration: const InputDecoration(labelText: "Celular Contacto")),
+                  TextField(controller: webCtrl, decoration: const InputDecoration(labelText: "Sitio Web")),
+                ],
+                TextField(controller: patenteCtrl, decoration: const InputDecoration(labelText: "Patente")),
+                const SizedBox(height: 20),
+                if (!_esFlota) ...[
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      final uploadInput = html.FileUploadInputElement()..accept = 'image/*';
+                      uploadInput.click();
+                      uploadInput.onChange.listen((e) {
+                        final files = uploadInput.files;
+                        if (files != null && files.isNotEmpty) {
+                          final reader = html.FileReader();
+                          reader.readAsDataUrl(files[0]);
+                          reader.onLoadEnd.listen((e) {
+                            String base64Result = reader.result as String;
+                            base64Result = base64Result.split(',').last;
+                            setDialogState(() {
+                              nuevoLogoBase64 = base64Result;
+                            });
+                          });
+                        }
+                      });
+                    },
+                    icon: const Icon(Icons.image),
+                    label: const Text("SUBIR / CAMBIAR LOGO"),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue[50], foregroundColor: const Color(0xFF0D47A1)),
+                  ),
+                  if (nuevoLogoBase64 != null) ...[
+                    const SizedBox(height: 10),
+                    const Text("✓ Imagen de logo procesada", style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold)),
+                  ]
+                ]
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCELAR")),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Actualizando perfil corporativo... ⏳")));
+                
+                final String emailKey = datosEmpresaActiva.correo.trim().toLowerCase();
+
+                if (_esFlota) {
+                  await FirebaseFirestore.instance.collection('conductores_flota').doc(emailKey).update({
+                    'nombre': nombreCtrl.text.trim(),
+                    'patente': patenteCtrl.text.trim().toUpperCase(),
+                  });
+                } else {
+                  final mapaActualizado = {
+                    'nombre': nombreCtrl.text.trim(),
+                    'empresa_nombre': empresaCtrl.text.trim(),
+                    'rut_empresa': rutCtrl.text.trim(),
+                    'celular_contacto': celularCtrl.text.trim(),
+                    'patente': patenteCtrl.text.trim().toUpperCase(),
+                    'sitio_web': webCtrl.text.trim(),
+                    'ruta_logo': nuevoLogoBase64,
+                  };
+                  await FirebaseFirestore.instance.collection('conductores_independientes').doc(emailKey).update(mapaActualizado);
+                }
+                _analizarPerfilYVinculacion();
+              },
+              child: const Text("GUARDAR PERFIL"),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _exportarCSVFinanzas() async {
     try {
       if (misRecibos.isEmpty) {
@@ -282,7 +433,7 @@ class _PantallaInicioState extends State<PantallaInicio> {
       }
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Generando Excel financiero... ⏳")));
       
-      String csvData = "Numero,Fecha,Pasajero,Origen,Destino,Monto\n";
+      String csvData = "Numero;Fecha;Pasajero;Origen;Destino;Monto\n";
       double sumaTotal = 0; 
 
       final fMoneda = NumberFormat('#,##0', 'es_CL');
@@ -294,29 +445,102 @@ class _PantallaInicioState extends State<PantallaInicio> {
         final destino = r.destino.replaceAll('"', '""');
         final montoFormateado = "\$${fMoneda.format(r.monto)}";
         
-        csvData += "${r.numero},$fecha,\"$passenger\",\"$origen\",\"$destino\",\"$montoFormateado\"\n";
+        csvData += "${r.numero};$fecha;\"$passenger\";\"$origen\";\"$destino\";\"$montoFormateado\"\n";
         sumaTotal += r.monto; 
       }
       
       final totalFormateado = "\$${fMoneda.format(sumaTotal)}";
-      csvData += ",,,,\"TOTAL:\",\"$totalFormateado\"\n";
+      csvData += ";;;;\"TOTAL:\";\"$totalFormateado\"\n";
       
       final nombreArchivo = "Reporte_Financiero_${DateFormat('dd_MM_yyyy').format(DateTime.now())}.csv";
-      final bytes = Uint8List.fromList([239, 187, 191] + utf8.encode(csvData)); // Formato UTF-8 con BOM para Excel
+      final String correoKey = (_empresaCorreoReal ?? datosEmpresaActiva.correo).trim().toLowerCase();
 
-      // 🚀 Usamos Printing para compartir/descargar el archivo binario
-      await Printing.sharePdf(bytes: bytes, filename: nombreArchivo);
-      
+      try {
+        await FirebaseFirestore.instance.collection('reportes').add({
+          'empresa_correo': correoKey,
+          'fecha': DateTime.now().toIso8601String(),
+          'monto_total': sumaTotal,
+          'total_recibos': misRecibos.length,
+          'csv_data': csvData,
+          'nombre_archivo': nombreArchivo,
+        });
+      } catch (e) {
+        print("Error respaldando historial de reportes: $e");
+      }
+
+      if (kIsWeb) {
+        final bytes = utf8.encode('\uFEFF$csvData'); 
+        final blob = html.Blob([bytes], 'text/csv;charset=utf-8');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        
+        final anchor = html.AnchorElement(href: url)
+          ..setAttribute("download", nombreArchivo)
+          ..style.display = 'none';
+        
+        html.document.body?.children.add(anchor);
+        anchor.click();
+        
+        html.document.body?.children.remove(anchor);
+        html.Url.revokeObjectUrl(url);
+
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Archivo CSV descargado.')));
+      } else {
+        final bytes = Uint8List.fromList([239, 187, 191] + utf8.encode(csvData));
+        await Printing.sharePdf(bytes: bytes, filename: nombreArchivo);
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error al generar .CSV: $e")));
     }
   }
 
-  // 🚀 CAMBIO 2: LÓGICA DE PDF UNIVERSAL
+  void _descargarReporteExistente(String csvData, String nombreArchivo) async {
+    if (kIsWeb) {
+      final bytes = utf8.encode('\uFEFF$csvData'); 
+      final blob = html.Blob([bytes], 'text/csv;charset=utf-8');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement(href: url)
+        ..setAttribute("download", nombreArchivo)
+        ..style.display = 'none';
+      html.document.body?.children.add(anchor);
+      anchor.click();
+      html.document.body?.children.remove(anchor);
+      html.Url.revokeObjectUrl(url);
+    } else {
+      final bytes = Uint8List.fromList([239, 187, 191] + utf8.encode(csvData));
+      await Printing.sharePdf(bytes: bytes, filename: nombreArchivo);
+    }
+  }
+
+  pw.Widget _construirCajitaPDF(String texto) {
+    return pw.Container(
+      width: 22, height: 16,
+      decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
+      alignment: pw.Alignment.center,
+      child: pw.Text(texto, style: const pw.TextStyle(fontSize: 10)),
+    );
+  }
+
+  pw.Widget _construirLineaPDF(String etiqueta, String valor) {
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.end,
+      children: [
+        pw.Text("$etiqueta ", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+        pw.Expanded(
+          child: pw.Container(
+            padding: const pw.EdgeInsets.only(bottom: 1, left: 4), 
+            decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.8))),
+            child: pw.Text(valor, style: const pw.TextStyle(fontSize: 11)),
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<Uint8List?> _generarBytesPDF(Recibo recibo) async {
     try {
       final pdf = pw.Document();
       pw.MemoryImage? imagenLogo;
+      pw.MemoryImage? imagenPagos;
 
       if (datosEmpresaActiva.rutaLogo != null && datosEmpresaActiva.rutaLogo!.isNotEmpty) {
         try {
@@ -329,17 +553,21 @@ class _PantallaInicioState extends State<PantallaInicio> {
           } else if (datosEmpresaActiva.rutaLogo!.length > 500) { 
             final bytes = base64Decode(datosEmpresaActiva.rutaLogo!);
             imagenLogo = pw.MemoryImage(Uint8List.fromList(bytes));
-          } else {
-             // 🚀 PROTECCIÓN DE ARCHIVO LOCAL EN WEB
-             if (!kIsWeb) {
-               final file = File(datosEmpresaActiva.rutaLogo!);
-               if (file.existsSync()) {
-                  imagenLogo = pw.MemoryImage(file.readAsBytesSync());
-               }
-             }
           }
         } catch (e) { print(e); }
       }
+
+      try {
+        final ByteData bytesPagos = await rootBundle.load('assets/pagos.jpg'); 
+        imagenPagos = pw.MemoryImage(bytesPagos.buffer.asUint8List());
+      } catch (_) {
+        try { 
+          final ByteData bytesPagos = await rootBundle.load('assets/pagos.png');
+          imagenPagos = pw.MemoryImage(bytesPagos.buffer.asUint8List());
+        } catch (_) {}
+      }
+
+      const String svgWhatsapp = '''<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#25D366" d="M12.031 0C5.383 0 0 5.383 0 12.031c0 2.124.551 4.195 1.597 6.012L.038 24l6.113-1.603a11.96 11.96 0 0 0 5.88 1.535h.005c6.648 0 12.031-5.384 12.031-12.032C24.067 5.383 18.679 0 12.031 0zm0 21.933h-.004a9.922 9.922 0 0 1-5.062-1.385l-.363-.215-3.766.987.998-3.668-.236-.376a9.92 9.92 0 0 1-1.517-5.313c0-5.502 4.478-9.98 9.98-9.98 5.502 0 9.98 4.478 9.98 9.98 0 5.502-4.478 9.98-9.98 9.98z"/><path fill="#FFF" d="M17.505 14.453c-.301-.151-1.777-.878-2.052-.979-.276-.1-.477-.151-.678.151-.201.301-.778.979-.953 1.18-.175.201-.351.226-.652.075-.301-.151-1.27-.468-2.42-1.493-.895-.798-1.501-1.784-1.677-2.085-.175-.301-.019-.464.132-.614.135-.135.301-.351.452-.527.151-.175.201-.351.301-.502.1-.201.05-.376-.025-.527-.075-.151-.678-1.631-.928-2.233-.245-.59-.493-.51-.678-.519-.175-.01-.376-.01-.577-.01-.201 0-.527.075-.803.376-.276.301-1.053 1.029-1.053 2.509s1.078 2.91 1.229 3.111c.151.201 2.124 3.242 5.143 4.545.719.31 1.28.495 1.718.633.723.23 1.382.197 1.901.12.583-.087 1.777-.726 2.028-1.43.251-.703.251-1.305.175-1.43-.075-.125-.276-.2-.577-.351z"/></svg>''';
 
       pdf.addPage(
         pw.Page(
@@ -363,10 +591,23 @@ class _PantallaInicioState extends State<PantallaInicio> {
                             pw.SizedBox(height: 5),
                             pw.Text(datosEmpresaActiva.nombreEmpresa.toUpperCase(), style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
                             if (datosEmpresaActiva.rutEmpresa.isNotEmpty) pw.Text("RUT: ${datosEmpresaActiva.rutEmpresa}", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                            
                             pw.SizedBox(height: 2),
-                            pw.Text("Correo: ${datosEmpresaActiva.correo}", style: const pw.TextStyle(fontSize: 10)),
+                            pw.Text(datosEmpresaActiva.correo.toLowerCase(), style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                            if (datosEmpresaActiva.sitioWeb.isNotEmpty) ...[
+                              pw.SizedBox(height: 2),
+                              pw.Text(datosEmpresaActiva.sitioWeb.toUpperCase(), style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                            ],
+                            
                             pw.SizedBox(height: 5),
-                            pw.Text("+56 ${datosEmpresaActiva.celular}", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                            pw.Row(
+                              mainAxisAlignment: pw.MainAxisAlignment.center,
+                              children: [
+                                pw.SvgImage(svg: svgWhatsapp, width: 14, height: 14),
+                                pw.SizedBox(width: 5),
+                                pw.Text("+56 ${datosEmpresaActiva.celular}", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                              ],
+                            )
                           ],
                         ),
                       ),
@@ -375,36 +616,84 @@ class _PantallaInicioState extends State<PantallaInicio> {
                         children: [
                           pw.Text("Recibo N° ${recibo.numero.toString().padLeft(4, '0')}", style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
                           pw.SizedBox(height: 10),
-                          pw.Text("Fecha: ${DateFormat('dd/MM/yyyy').format(recibo.fecha)}", style: const pw.TextStyle(fontSize: 10)),
-                          pw.Text("Hora: ${DateFormat('HH:mm').format(recibo.fecha)}", style: const pw.TextStyle(fontSize: 10)),
+                          pw.Row(
+                            children: [
+                              pw.Text("Fecha ", style: const pw.TextStyle(fontSize: 10)),
+                              _construirCajitaPDF(DateFormat('dd').format(recibo.fecha)),
+                              _construirCajitaPDF(DateFormat('MM').format(recibo.fecha)),
+                              _construirCajitaPDF(DateFormat('yy').format(recibo.fecha)),
+                            ],
+                          ),
                         ],
                       ),
                     ],
                   ),
-                  pw.SizedBox(height: 10),
-                  pw.Text("SR (A): ${recibo.sr}".toUpperCase(), style: const pw.TextStyle(fontSize: 12)),
+                  pw.SizedBox(height: 15),
+                  
+                  _construirLineaPDF("SR (A):", recibo.sr.toUpperCase()),
                   pw.SizedBox(height: 8),
-                  pw.Text("ORIGEN: ${recibo.origen} ➔ DESTINO: ${recibo.destino}".toUpperCase(), style: const pw.TextStyle(fontSize: 12)),
+                  if (recibo.esConvenio) ...[
+                    _construirLineaPDF("EMPRESA CONVENIO:", recibo.empresaPasajero.toUpperCase()),
+                    pw.SizedBox(height: 8),
+                  ],
+                  pw.Row(
+                    children: [
+                      pw.Expanded(child: _construirLineaPDF("ORIGEN:", recibo.origen.toUpperCase())),
+                      pw.SizedBox(width: 15),
+                      pw.Expanded(child: _construirLineaPDF("DESTINO:", recibo.destino.toUpperCase())),
+                    ],
+                  ),
                   pw.SizedBox(height: 8),
-                  pw.Text("OBSERVACIONES: ${recibo.observaciones}".toUpperCase(), style: const pw.TextStyle(fontSize: 12)),
+                  _construirLineaPDF("OBSERVACIONES:", recibo.observaciones.toUpperCase()),
+                  pw.SizedBox(height: 8),
+                  pw.Row(
+                    children: [
+                      pw.Expanded(flex: 3, child: _construirLineaPDF("CONDUCTOR:", datosEmpresaActiva.nombreConductor.toUpperCase())),
+                      pw.SizedBox(width: 15),
+                      pw.Expanded(flex: 2, child: _construirLineaPDF("PATENTE:", datosEmpresaActiva.patente.toUpperCase())),
+                    ],
+                  ),
+                  
                   pw.Spacer(),
-                  pw.Align(
-                    alignment: pw.Alignment.centerRight,
-                    child: pw.Text("TOTAL VALOR \$ ${NumberFormat('#,##0', 'es_CL').format(recibo.monto)}", style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold)),
-                  )
+                  
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      if (recibo.mostrarLogosPago && imagenPagos != null)
+                        pw.Container(width: 120, height: 35, child: pw.Image(imagenPagos, fit: pw.BoxFit.contain))
+                      else
+                        pw.SizedBox(width: 120), 
+                      
+                      pw.Expanded(
+                        child: pw.Row(
+                          crossAxisAlignment: pw.CrossAxisAlignment.end,
+                          mainAxisAlignment: pw.MainAxisAlignment.end, 
+                          children: [
+                            pw.Text("VALOR \$ ", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                            pw.Container(
+                              width: 120,
+                              padding: const pw.EdgeInsets.only(bottom: 2, left: 5), 
+                              decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.8))),
+                              child: pw.Text(NumberFormat.currency(locale: 'es_CL', symbol: '', decimalDigits: 0).format(recibo.monto), style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             );
           },
         ),
       );
-      return await pdf.save();
+      return await pdf.save(); 
     } catch (e) {
       return null;
     }
   }
 
-  // 🚀 CAMBIO 3: MENÚ DE PDF (Usa Printing para web y nativo)
   Future<void> _abrirOpcionesPDFDesdeLista(Recibo recibo) async {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Procesando documento... ⏳"), duration: Duration(milliseconds: 800)));
     
@@ -454,7 +743,6 @@ class _PantallaInicioState extends State<PantallaInicio> {
     } else if (ruta.length > 500) {
       imagenFinal = Image.memory(base64Decode(ruta), fit: BoxFit.contain);
     } else {
-      // 🚀 PROTECCIÓN DE ARCHIVO LOCAL EN WEB
       if (kIsWeb) {
         imagenFinal = const Icon(Icons.business, color: Color(0xFF0D47A1), size: 24);
       } else {
@@ -490,16 +778,52 @@ class _PantallaInicioState extends State<PantallaInicio> {
       child: _esFlota 
         ? Scaffold(
             appBar: AppBar(
-              title: const Text("Mis Comprobantes", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              toolbarHeight: 80,
               backgroundColor: const Color(0xFF0D47A1),
-              iconTheme: const IconThemeData(color: Colors.white),
-              leading: IconButton(
-                icon: const Icon(Icons.logout, color: Colors.white),
-                onPressed: () async {
-                  final salir = await _solicitarConfirmacionSalida();
-                  if (salir) _cerrarSesion();
-                },
+              elevation: 0,
+              leadingWidth: 70,
+              leading: Padding(
+                padding: const EdgeInsets.only(left: 16.0, top: 10, bottom: 10),
+                child: Container(
+                  decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
+                  clipBehavior: Clip.hardEdge,
+                  child: _construirAvatarLogo(datosEmpresaActiva.rutaLogo),
+                ),
               ),
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text("Hola, ${datosEmpresaActiva.nombreConductor}", style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text(datosEmpresaActiva.nombreEmpresa, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: Colors.black87, width: 1.5),
+                    ),
+                    child: Text(
+                      datosEmpresaActiva.patente, 
+                      style: const TextStyle(color: Colors.black, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.5),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.edit_note, color: Colors.white),
+                  onPressed: _abrirDialogoEditarPerfil,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.logout, color: Colors.white),
+                  onPressed: () async {
+                    final salir = await _solicitarConfirmacionSalida();
+                    if (salir) _cerrarSesion();
+                  },
+                ),
+              ],
             ),
             body: _buildVistaComprobantes(),
           )
@@ -542,6 +866,10 @@ class _PantallaInicioState extends State<PantallaInicio> {
                 ),
                 actions: [
                   IconButton(
+                    icon: const Icon(Icons.edit, color: Colors.white),
+                    onPressed: _abrirDialogoEditarPerfil,
+                  ),
+                  IconButton(
                     icon: const Icon(Icons.logout, color: Colors.white),
                     onPressed: () async {
                       final salir = await _solicitarConfirmacionSalida();
@@ -579,29 +907,18 @@ class _PantallaInicioState extends State<PantallaInicio> {
           child: ElevatedButton.icon(
             onPressed: () async {
               int proximoNumero = 1;
-              try {
-                QuerySnapshot qMax = await FirebaseFirestore.instance
-                    .collection('recibos')
-                    .where('empresa_correo', isEqualTo: _empresaCorreoReal ?? datosEmpresaActiva.correo)
-                    .get();
-
-                if (qMax.docs.isNotEmpty) {
-                  List<int> numerosEmitidos = qMax.docs.map((doc) => ((doc.data() as Map<String, dynamic>)['numero'] as int? ?? 0)).toList();
-                  proximoNumero = numerosEmitidos.reduce(max) + 1;
-                }
-              } catch (e) {
-                if (misRecibos.isNotEmpty) {
-                  proximoNumero = misRecibos.map((e) => e.numero).reduce(max) + 1;
-                }
+              if (misRecibos.isNotEmpty) {
+                proximoNumero = misRecibos.map((e) => e.numero).reduce((curr, next) => curr > next ? curr : next) + 1;
               }
 
               final resultado = await Navigator.push(context, MaterialPageRoute(builder: (context) => PantallaFormulario(numeroSugerido: proximoNumero)));
               
               if (resultado != null && resultado is Recibo) {
-                setState(() { misRecibos.add(resultado); });
-                await _guardarRecibosMemoria();
-                
                 try {
+                  // 🚀 BLINDAJE EN ESCRITURA: Forzamos minúsculas absolutas al guardar los índices relacionales
+                  final String correoConductorClean = datosEmpresaActiva.correo.trim().toLowerCase();
+                  final String correoEmpresaClean = (_empresaCorreoReal ?? datosEmpresaActiva.correo).trim().toLowerCase();
+
                   await FirebaseFirestore.instance.collection('recibos').add({
                     'numero': resultado.numero,
                     'sr': resultado.sr, 
@@ -612,10 +929,11 @@ class _PantallaInicioState extends State<PantallaInicio> {
                     'fecha': resultado.fecha.toIso8601String(), 
                     'esConvenio': resultado.esConvenio,
                     'empresaPasajero': resultado.empresaPasajero,
-                    'conductor_email': datosEmpresaActiva.correo,
+                    'conductor_email': correoConductorClean,
                     'conductor_nombre': datosEmpresaActiva.nombreConductor,
                     'patente': datosEmpresaActiva.patente,
-                    'empresa_correo': _empresaCorreoReal ?? datosEmpresaActiva.correo, 
+                    'empresa_correo': correoEmpresaClean, 
+                    'mostrar_logos': resultado.mostrarLogosPago,
                   });
                 } catch (e) {
                   print("Error al subir a la nube: $e");
@@ -633,8 +951,7 @@ class _PantallaInicioState extends State<PantallaInicio> {
               : ListView.builder(
                   itemCount: misRecibos.length,
                   itemBuilder: (context, index) {
-                    final int indiceReal = misRecibos.length - 1 - index;
-                    final recibo = misRecibos[indiceReal];
+                    final recibo = misRecibos[index];
                     return Card(
                       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                       child: ListTile(
@@ -650,7 +967,7 @@ class _PantallaInicioState extends State<PantallaInicio> {
                             ),
                             IconButton(
                               icon: const Icon(Icons.delete_outline, color: Colors.grey),
-                              onPressed: () => _eliminarComprobanteDeLista(recibo, indiceReal),
+                              onPressed: () => _eliminarComprobanteDeLista(recibo, index),
                             ),
                           ],
                         ),
@@ -669,6 +986,7 @@ class _PantallaInicioState extends State<PantallaInicio> {
     double totalMes = 0;
 
     final ahora = DateTime.now();
+    
     for (var r in misRecibos) {
       if (r.fecha.year == ahora.year && r.fecha.month == ahora.month && r.fecha.day == ahora.day) {
         totalDia += r.monto;
@@ -682,6 +1000,7 @@ class _PantallaInicioState extends State<PantallaInicio> {
     }
 
     final fMoneda = NumberFormat.currency(locale: 'es_CL', symbol: '\$', decimalDigits: 0);
+    final String correoFiltroReporte = (_empresaCorreoReal ?? datosEmpresaActiva.correo).trim().toLowerCase();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
@@ -701,6 +1020,49 @@ class _PantallaInicioState extends State<PantallaInicio> {
             label: const Text("GENERAR MI .CSV FINANCIERO", style: TextStyle(fontWeight: FontWeight.bold)),
             onPressed: _exportarCSVFinanzas, 
           ),
+
+          const SizedBox(height: 30),
+          const Divider(),
+          const SizedBox(height: 15),
+          const Text("HISTORIAL DE REPORTES GENERADOS", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
+          const SizedBox(height: 10),
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('reportes')
+                .where('empresa_correo', isEqualTo: correoFiltroReporte) // 🚀 Consulta estandarizada en minúsculas
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+              final docs = snapshot.data!.docs;
+              if (docs.isEmpty) return const Center(child: Text("No hay reportes archivados.", style: TextStyle(color: Colors.grey, fontSize: 13)));
+              
+              final listaDocs = List<QueryDocumentSnapshot>.from(docs);
+              listaDocs.sort((a, b) => (b.data() as Map<String, dynamic>)['fecha'].toString().compareTo((a.data() as Map<String, dynamic>)['fecha'].toString()));
+
+              return ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: listaDocs.length,
+                itemBuilder: (context, index) {
+                  final rData = listaDocs[index].data() as Map<String, dynamic>;
+                  final fechaRep = DateTime.parse(rData['fecha'] ?? DateTime.now().toIso8601String());
+                  
+                  return Card(
+                    margin: const EdgeInsets.symmetric(vertical: 6),
+                    child: ListTile(
+                      leading: const Icon(Icons.insert_drive_file, color: Colors.green),
+                      title: Text(rData['nombre_archivo'] ?? 'Finanzas.csv', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      subtitle: Text("Generado: ${DateFormat('dd/MM/yyyy HH:mm').format(fechaRep)}\nMonto: ${fMoneda.format(rData['monto_total'] ?? 0)} (${rData['total_recibos'] ?? 0} viajes)"),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.download_for_offline, color: Color(0xFF0D47A1), size: 28),
+                        onPressed: () => _descargarReporteExistente(rData['csv_data'] ?? '', rData['nombre_archivo'] ?? 'Reporte.csv'),
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
         ],
       ),
     );
@@ -710,7 +1072,18 @@ class _PantallaInicioState extends State<PantallaInicio> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border(left: BorderSide(color: c, width: 6)), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4))]),
+      decoration: BoxDecoration(
+        color: Colors.white, 
+        borderRadius: BorderRadius.circular(16), 
+        border: Border(left: BorderSide(color: c, width: 6)), 
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04), 
+            blurRadius: 10, 
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -723,9 +1096,6 @@ class _PantallaInicioState extends State<PantallaInicio> {
   }
 }
 
-// ---------------------------------------------------------------------
-// 📋 FORMULARIO DE RECOPILACIÓN DE DATOS
-// ---------------------------------------------------------------------
 class PantallaFormulario extends StatefulWidget {
   final int numeroSugerido;
   const PantallaFormulario({super.key, required this.numeroSugerido});
@@ -741,9 +1111,42 @@ class _PantallaFormularioState extends State<PantallaFormulario> {
   final _observacionesController = TextEditingController();
   final _montoController = TextEditingController();
   final _empresaPasajeroController = TextEditingController();
+  final _fechaCtrl = TextEditingController(); 
 
+  DateTime _fechaSeleccionada = DateTime.now(); 
   bool _esConvenio = false;
   bool _mostrarLogosPago = true; 
+
+  @override
+  void initState() {
+    super.initState();
+    _fechaCtrl.text = DateFormat('dd/MM/yyyy').format(_fechaSeleccionada);
+  }
+
+  Future<void> _seleccionarFecha(BuildContext context) async {
+    final DateTime? seleccion = await showDatePicker(
+      context: context,
+      initialDate: _fechaSeleccionada,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF0D47A1), 
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (seleccion != null && seleccion != _fechaSeleccionada) {
+      setState(() {
+        _fechaSeleccionada = seleccion;
+        _fechaCtrl.text = DateFormat('dd/MM/yyyy').format(_fechaSeleccionada);
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -753,6 +1156,20 @@ class _PantallaFormularioState extends State<PantallaFormulario> {
         padding: const EdgeInsets.all(20.0),
         child: Column(
           children: [
+            TextField(
+              controller: _fechaCtrl,
+              readOnly: true,
+              onTap: () => _seleccionarFecha(context),
+              decoration: InputDecoration(
+                labelText: "Fecha del Servicio",
+                suffixIcon: const Icon(Icons.calendar_month, color: Color(0xFF0D47A1)),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                filled: true,
+                fillColor: Colors.blue[50],
+              ),
+            ),
+            const SizedBox(height: 15),
+
             SwitchListTile(
               title: const Text("Convenio de Empresa", style: TextStyle(fontWeight: FontWeight.bold)),
               subtitle: const Text("Habilita esto si el pasajero viaja por convenio"),
@@ -776,8 +1193,10 @@ class _PantallaFormularioState extends State<PantallaFormulario> {
             TextField(controller: _observacionesController, textCapitalization: TextCapitalization.words, decoration: InputDecoration(labelText: "Observaciones", border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
             const SizedBox(height: 15),
             TextField(
-              controller: _montoController, decoration: InputDecoration(labelText: "Valor \$", border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))),
-              keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              controller: _montoController, 
+              decoration: InputDecoration(labelText: "Valor \$", border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))),
+              keyboardType: TextInputType.number, 
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly], 
             ),
             const SizedBox(height: 15),
             SwitchListTile(
@@ -796,7 +1215,7 @@ class _PantallaFormularioState extends State<PantallaFormulario> {
                   numero: widget.numeroSugerido, sr: _srController.text, origen: _origenController.text,
                   destino: _destinoController.text, observaciones: _observacionesController.text,
                   monto: double.tryParse(_montoController.text) ?? 0.0, 
-                  fecha: DateTime.now(), 
+                  fecha: _fechaSeleccionada, 
                   esConvenio: _esConvenio, empresaPasajero: _empresaPasajeroController.text,
                   mostrarLogosPago: _mostrarLogosPago,
                 );
@@ -811,19 +1230,42 @@ class _PantallaFormularioState extends State<PantallaFormulario> {
   }
 }
 
-// ---------------------------------------------------------------------
-// 🖨️ VISUALIZADOR DETALLE Y GENERADOR PDF + COMPARTIR (VERSIÓN ÚNICA)
-// ---------------------------------------------------------------------
 class PantallaDetalleRecibo extends StatelessWidget {
   final Recibo recibo;
   final DatosEmpresa datosEmpresa;
 
   const PantallaDetalleRecibo({super.key, required this.recibo, required this.datosEmpresa});
 
+  pw.Widget _construirCajitaPDF(String texto) {
+    return pw.Container(
+      width: 22, height: 16,
+      decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
+      alignment: pw.Alignment.center,
+      child: pw.Text(texto, style: const pw.TextStyle(fontSize: 10)),
+    );
+  }
+
+  pw.Widget _construirLineaPDF(String etiqueta, String valor) {
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.end,
+      children: [
+        pw.Text("$etiqueta ", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+        pw.Expanded(
+          child: pw.Container(
+            padding: const pw.EdgeInsets.only(bottom: 1, left: 4), 
+            decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.8))),
+            child: pw.Text(valor, style: const pw.TextStyle(fontSize: 11)),
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> _generarYCompartirPDF(BuildContext context) async {
     try {
       final pdf = pw.Document();
       pw.MemoryImage? imagenLogo;
+      pw.MemoryImage? imagenPagos;
 
       if (datosEmpresa.rutaLogo != null && datosEmpresa.rutaLogo!.isNotEmpty) {
         try {
@@ -837,19 +1279,23 @@ class PantallaDetalleRecibo extends StatelessWidget {
           } else if (datosEmpresa.rutaLogo!.length > 500) { 
             final bytes = base64Decode(datosEmpresa.rutaLogo!);
             imagenLogo = pw.MemoryImage(Uint8List.fromList(bytes));
-          } else {
-             // 🚀 PROTECCIÓN DE ARCHIVO LOCAL EN WEB
-             if (!kIsWeb) {
-               final file = File(datosEmpresa.rutaLogo!);
-               if (file.existsSync()) {
-                  imagenLogo = pw.MemoryImage(file.readAsBytesSync());
-               }
-             }
           }
         } catch (e) {
           print("Aviso: Logo no cargado ($e)");
         }
       }
+
+      try {
+        final ByteData bytesPagos = await rootBundle.load('assets/pagos.jpg'); 
+        imagenPagos = pw.MemoryImage(bytesPagos.buffer.asUint8List());
+      } catch (e) {
+        try { 
+          final ByteData bytesPagos = await rootBundle.load('assets/pagos.png');
+          imagenPagos = pw.MemoryImage(bytesPagos.buffer.asUint8List());
+        } catch (_) {}
+      }
+
+      const String svgWhatsapp = '''<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#25D366" d="M12.031 0C5.383 0 0 5.383 0 12.031c0 2.124.551 4.195 1.597 6.012L.038 24l6.113-1.603a11.96 11.96 0 0 0 5.88 1.535h.005c6.648 0 12.031-5.384 12.031-12.032C24.067 5.383 18.679 0 12.031 0zm0 21.933h-.004a9.922 9.922 0 0 1-5.062-1.385l-.363-.215-3.766.987.998-3.668-.236-.376a9.92 9.92 0 0 1-1.517-5.313c0-5.502 4.478-9.98 9.98-9.98 5.502 0 9.98 4.478 9.98 9.98 0 5.502-4.478 9.98-9.98 9.98z"/><path fill="#FFF" d="M17.505 14.453c-.301-.151-1.777-.878-2.052-.979-.276-.1-.477-.151-.678.151-.201.301-.778.979-.953 1.18-.175.201-.351.226-.652.075-.301-.151-1.27-.468-2.42-1.493-.895-.798-1.501-1.784-1.677-2.085-.175-.301-.019-.464.132-.614.135-.135.301-.351.452-.527.151-.175.201-.351.301-.502.1-.201.05-.376-.025-.527-.075-.151-.678-1.631-.928-2.233-.245-.59-.493-.51-.678-.519-.175-.01-.376-.01-.577-.01-.201 0-.527.075-.803.376-.276.301-1.053 1.029-1.053 2.509s1.078 2.91 1.229 3.111c.151.201 2.124 3.242 5.143 4.545.719.31 1.28.495 1.718.633.723.23 1.382.197 1.901.12.583-.087 1.777-.726 2.028-1.43.251-.703.251-1.305.175-1.43-.075-.125-.276-.2-.577-.351z"/></svg>''';
 
       pdf.addPage(
         pw.Page(
@@ -873,10 +1319,23 @@ class PantallaDetalleRecibo extends StatelessWidget {
                             pw.SizedBox(height: 5),
                             pw.Text(datosEmpresa.nombreEmpresa.toUpperCase(), style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
                             if (datosEmpresa.rutEmpresa.isNotEmpty) pw.Text("RUT: ${datosEmpresa.rutEmpresa}", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                            
                             pw.SizedBox(height: 2),
-                            pw.Text("Correo: ${datosEmpresa.correo}", style: const pw.TextStyle(fontSize: 10)),
+                            pw.Text(datosEmpresa.correo.toLowerCase(), style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                            if (datosEmpresa.sitioWeb.isNotEmpty) ...[
+                              pw.SizedBox(height: 2),
+                              pw.Text(datosEmpresa.sitioWeb.toUpperCase(), style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                            ],
+                            
                             pw.SizedBox(height: 5),
-                            pw.Text("+56 ${datosEmpresa.celular}", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                            pw.Row(
+                              mainAxisAlignment: pw.MainAxisAlignment.center,
+                              children: [
+                                pw.SvgImage(svg: svgWhatsapp, width: 14, height: 14),
+                                pw.SizedBox(width: 5),
+                                pw.Text("+56 ${datosEmpresa.celular}", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                              ],
+                            )
                           ],
                         ),
                       ),
@@ -885,23 +1344,72 @@ class PantallaDetalleRecibo extends StatelessWidget {
                         children: [
                           pw.Text("Recibo N° ${recibo.numero.toString().padLeft(4, '0')}", style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
                           pw.SizedBox(height: 10),
-                          pw.Text("Fecha: ${DateFormat('dd/MM/yyyy').format(recibo.fecha)}", style: const pw.TextStyle(fontSize: 10)),
-                          pw.Text("Hora: ${DateFormat('HH:mm').format(recibo.fecha)}", style: const pw.TextStyle(fontSize: 10)),
+                          pw.Row(
+                            children: [
+                              pw.Text("Fecha ", style: const pw.TextStyle(fontSize: 10)),
+                              _construirCajitaPDF(DateFormat('dd').format(recibo.fecha)),
+                              _construirCajitaPDF(DateFormat('MM').format(recibo.fecha)),
+                              _construirCajitaPDF(DateFormat('yy').format(recibo.fecha)),
+                            ],
+                          ),
                         ],
                       ),
                     ],
                   ),
-                  pw.SizedBox(height: 10),
-                  pw.Text("SR (A): ${recibo.sr}".toUpperCase(), style: const pw.TextStyle(fontSize: 12)),
+                  pw.SizedBox(height: 15),
+                  
+                  _construirLineaPDF("SR (A):", recibo.sr.toUpperCase()),
                   pw.SizedBox(height: 8),
-                  pw.Text("ORIGEN: ${recibo.origen} ➔ DESTINO: ${recibo.destino}".toUpperCase(), style: const pw.TextStyle(fontSize: 12)),
+                  if (recibo.esConvenio) ...[
+                    _construirLineaPDF("EMPRESA CONVENIO:", recibo.empresaPasajero.toUpperCase()),
+                    pw.SizedBox(height: 8),
+                  ],
+                  pw.Row(
+                    children: [
+                      pw.Expanded(child: _construirLineaPDF("ORIGEN:", recibo.origen.toUpperCase())),
+                      pw.SizedBox(width: 15), 
+                      pw.Expanded(child: _construirLineaPDF("DESTINO:", recibo.destino.toUpperCase())),
+                    ],
+                  ),
                   pw.SizedBox(height: 8),
-                  pw.Text("OBSERVACIONES: ${recibo.observaciones}".toUpperCase(), style: const pw.TextStyle(fontSize: 12)),
+                  _construirLineaPDF("OBSERVACIONES:", recibo.observaciones.toUpperCase()),
+                  pw.SizedBox(height: 8),
+                  pw.Row(
+                    children: [
+                      pw.Expanded(flex: 3, child: _construirLineaPDF("CONDUCTOR:", datosEmpresa.nombreConductor.toUpperCase())),
+                      pw.SizedBox(width: 15),
+                      pw.Expanded(flex: 2, child: _construirLineaPDF("PATENTE:", datosEmpresa.patente.toUpperCase())),
+                    ],
+                  ),
+                  
                   pw.Spacer(),
-                  pw.Align(
-                    alignment: pw.Alignment.centerRight,
-                    child: pw.Text("TOTAL VALOR \$ ${NumberFormat('#,##0', 'es_CL').format(recibo.monto)}", style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold)),
-                  )
+                  
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      if (recibo.mostrarLogosPago && imagenPagos != null)
+                        pw.Container(width: 120, height: 35, child: pw.Image(imagenPagos, fit: pw.BoxFit.contain))
+                      else
+                        pw.SizedBox(width: 120), 
+                      
+                      pw.Expanded(
+                        child: pw.Row(
+                          crossAxisAlignment: pw.CrossAxisAlignment.end,
+                          mainAxisAlignment: pw.MainAxisAlignment.end, 
+                          children: [
+                            pw.Text("VALOR \$ ", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                            pw.Container(
+                              width: 120,
+                              padding: const pw.EdgeInsets.only(bottom: 2, left: 5), 
+                              decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.8))),
+                              child: pw.Text(NumberFormat.currency(locale: 'es_CL', symbol: '', decimalDigits: 0).format(recibo.monto), style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             );
@@ -910,8 +1418,6 @@ class PantallaDetalleRecibo extends StatelessWidget {
       );
 
       final pdfBytes = await pdf.save();
-
-      // 🚀 CAMBIO 4: USA PRINTING PARA COMPARTIR EL DOCUMENTO SIN COLAPSO WEB
       await Printing.sharePdf(bytes: pdfBytes, filename: "Recibo_N${recibo.numero}_${recibo.sr}.pdf");
       
     } catch (e) {
@@ -932,7 +1438,18 @@ class PantallaDetalleRecibo extends StatelessWidget {
             padding: const EdgeInsets.all(20.0),
             child: Container(
               padding: const EdgeInsets.all(25.0),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10, spreadRadius: 2, offset: const Offset(0, 5))]),
+              decoration: BoxDecoration(
+                color: Colors.white, 
+                borderRadius: BorderRadius.circular(15), 
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.1), 
+                    blurRadius: 10, 
+                    spreadRadius: 2, 
+                    offset: const Offset(0, 5),
+                  )
+                ],
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,

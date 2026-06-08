@@ -54,8 +54,11 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
     setState(() { _cargando = true; });
 
     try {
+      // 🚀 REGLA DE ORO: Forzamos que el correo siempre se guarde en minúsculas en la base de datos
+      final String correoLimpio = _emailController.text.trim().toLowerCase();
+
       await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _emailController.text.trim(),
+        email: correoLimpio, // Usamos la versión limpia
         password: _passwordController.text.trim(),
       );
 
@@ -66,7 +69,9 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
         } catch (e) { print("Error al convertir imagen: $e"); }
       }
 
-      await FirebaseFirestore.instance.collection('conductores_independientes').doc(_emailController.text.trim()).set({
+      // Guardamos en Firestore asegurándonos de que el ID del documento sea en minúsculas
+      await FirebaseFirestore.instance.collection('conductores_independientes').doc(correoLimpio).set({
+        'correo': correoLimpio, // 🚀 Añadimos el correo internamente para la red de búsqueda del Login
         'nombre': _nombreController.text.isEmpty ? "Conductor" : _nombreController.text.trim(),
         'empresa_nombre': _empresaController.text.isEmpty ? "PARTICULAR" : _empresaController.text.trim(),
         'rut_empresa': _rutController.text,
@@ -82,7 +87,7 @@ class _PantallaRegistroState extends State<PantallaRegistro> {
         nombreEmpresa: _empresaController.text.isEmpty ? "PARTICULAR" : _empresaController.text.trim(),
         rutEmpresa: _rutController.text, 
         celular: _celularController.text.isEmpty ? "Sin telefono" : _celularController.text,
-        correo: _emailController.text.trim(), 
+        correo: correoLimpio, // Mandamos la versión limpia al panel
         patente: _patenteController.text.isEmpty ? "Sin patente" : _patenteController.text.toUpperCase(),
         sitioWeb: _webController.text.toUpperCase(), 
         rutaLogo: logoGuardar, 

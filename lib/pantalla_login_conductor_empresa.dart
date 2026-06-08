@@ -2,8 +2,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // 🚀 IMPORTACIÓN AGREGADA
-import 'pantalla_conductor_empresa.dart'; // 🔌 Apunta de vuelta a tu archivo original
+import 'package:shared_preferences/shared_preferences.dart'; 
+import 'pantalla_conductor_empresa.dart'; 
 
 class PantallaLoginConductorEmpresa extends StatefulWidget {
   const PantallaLoginConductorEmpresa({super.key});
@@ -17,8 +17,6 @@ class _PantallaLoginConductorEmpresaState extends State<PantallaLoginConductorEm
   final TextEditingController _passwordController = TextEditingController();
   bool _cargando = false;
   bool _ocultarPassword = true;
-
-  // 🚀 PIEZA A: VARIABLE Y CARGADOR INICIAL
   bool _recordarme = false;
 
   @override
@@ -27,14 +25,14 @@ class _PantallaLoginConductorEmpresaState extends State<PantallaLoginConductorEm
     _cargarCredencialesGuardadas();
   }
 
-  // Carga los datos si el usuario activó "Recuérdame" antes
   Future<void> _cargarCredencialesGuardadas() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     setState(() {
-      _recordarme = prefs.getBool('recordarme_activado_flota') ?? false; // Usamos un nombre específico para flota
+      _recordarme = prefs.getBool('recordarme_activado_flota') ?? false; 
       if (_recordarme) {
-        _emailController.text = prefs.getString('email_guardado_flota') ?? '';
-        _passwordController.text = prefs.getString('password_guardado_flota') ?? '';
+        // Al cargar, aseguramos minúsculas limpias
+        _emailController.text = (prefs.getString('email_guardado_flota') ?? '').trim().toLowerCase();
+        _passwordController.text = ''; // 🚀 NUNCA carga la contraseña por seguridad
       }
     });
   }
@@ -48,19 +46,40 @@ class _PantallaLoginConductorEmpresaState extends State<PantallaLoginConductorEm
     setState(() { _cargando = true; });
 
     try {
-      final String correoChofer = _emailController.text.trim();
+      // 🚀 LA REGLA DE ORO: Estandarizamos el correo inmediatamente a minúsculas puras
+      final String correoTipeado = _emailController.text.trim();
+      final String correoLimpio = correoTipeado.toLowerCase();
 
-      // 1. Validar identidad en Firebase Auth
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: correoChofer,
+      // 1. Validar identidad en Firebase Auth usando el correo controlado
+      UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: correoLimpio,
         password: _passwordController.text.trim(),
       );
 
-      // 2. Verificar que exista en la base de datos de la flota
+      final String? correoAuth = userCredential.user?.email?.trim().toLowerCase();
+
+      // Lista de respaldo para bases de datos con IDs históricos en mayúsculas
+      List<String> variaciones = {
+        correoLimpio,
+        correoTipeado,
+        if (correoAuth != null) correoAuth,
+      }.toList();
+
+      // 2. Verificar que exista en la base de datos de la flota de manera tolerante
       DocumentSnapshot choferDoc = await FirebaseFirestore.instance
           .collection('conductores_flota')
-          .doc(correoChofer)
+          .doc(correoLimpio)
           .get();
+
+      if (!choferDoc.exists) {
+        for (String variante in variaciones) {
+          DocumentSnapshot docVar = await FirebaseFirestore.instance.collection('conductores_flota').doc(variante).get();
+          if (docVar.exists) {
+            choferDoc = docVar;
+            break;
+          }
+        }
+      }
 
       if (!choferDoc.exists) {
         await FirebaseAuth.instance.signOut();
@@ -68,12 +87,12 @@ class _PantallaLoginConductorEmpresaState extends State<PantallaLoginConductorEm
         return;
       }
 
-      // 🚀 PIEZA C: GUARDAR O BORRAR MEMORIA SEGÚN EL CHECKBOX
+      // 🚀 SEGURO DE PERSISTENCIA: Solo guardamos el correo, jamás la clave
       SharedPreferences prefs = await SharedPreferences.getInstance();
       if (_recordarme) {
-        await prefs.setString('email_guardado_flota', _emailController.text.trim());
-        await prefs.setString('password_guardado_flota', _passwordController.text.trim());
+        await prefs.setString('email_guardado_flota', correoLimpio);
         await prefs.setBool('recordarme_activado_flota', true);
+        await prefs.remove('password_guardado_flota'); // Limpieza preventiva obligatoria
       } else {
         await prefs.remove('email_guardado_flota');
         await prefs.remove('password_guardado_flota');
@@ -82,7 +101,7 @@ class _PantallaLoginConductorEmpresaState extends State<PantallaLoginConductorEm
 
       _mostrarAlerta("¡Ingreso exitoso a la flota!");
 
-      // 3. 🚀 VIAJE DIRECTO AL DASHBOARD
+      // 3. VIAJE DIRECTO AL DASHBOARD
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -91,7 +110,11 @@ class _PantallaLoginConductorEmpresaState extends State<PantallaLoginConductorEm
       );
 
     } on FirebaseAuthException catch (e) {
-      _mostrarAlerta(e.message ?? "Error de ingreso.");
+      String mensaje = "Error al iniciar sesión.";
+      if (e.code == 'user-not-found') mensaje = "Usuario no encontrado.";
+      if (e.code == 'wrong-password') mensaje = "Contraseña incorrecta.";
+      if (e.code == 'invalid-credential') mensaje = "Credenciales inválidas.";
+      _mostrarAlerta(mensaje);
     } catch (e) {
       _mostrarAlerta("Error de sincronización con la flota: $e");
     } finally {
@@ -179,7 +202,7 @@ class _PantallaLoginConductorEmpresaState extends State<PantallaLoginConductorEm
                       ExcludeSemantics(
                         child: TextField(
                           controller: _emailController,
-                          keyboardType: TextInputType.text,
+                          keyboardType: TextInputType.emailAddress,
                           decoration: InputDecoration(
                             labelText: "Correo Conductor Flota",
                             prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF0D47A1)),
@@ -205,9 +228,8 @@ class _PantallaLoginConductorEmpresaState extends State<PantallaLoginConductorEm
                           ),
                         ),
                       ),
-                      const SizedBox(height: 16), // Espacio ajustado
+                      const SizedBox(height: 16), 
 
-                      // 🚀 PIEZA B: CHECKBOX RECUÉRDAME
                       Row(
                         children: [
                           Checkbox(
@@ -219,7 +241,7 @@ class _PantallaLoginConductorEmpresaState extends State<PantallaLoginConductorEm
                               });
                             },
                           ),
-                          const Text("Recordar mis datos", style: TextStyle(color: Colors.grey, fontSize: 14)),
+                          const Text("Recordar mi correo", style: TextStyle(color: Colors.grey, fontSize: 14)),
                         ],
                       ),
 

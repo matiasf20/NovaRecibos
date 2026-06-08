@@ -11,6 +11,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart'; 
 import 'pantalla_bienvenida.dart';
+import 'package:universal_html/html.dart' as html;
 
 class PantallaAdminDashboard extends StatefulWidget {
   const PantallaAdminDashboard({super.key});
@@ -29,7 +30,6 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
   String _nombreEmpresa = "Mi Empresa Flota";
   String _rutEmpresa = "";
   String _celularEmpresa = "";
-  // ignore: unused_field
   String _sitioWeb = "";
   String? _logoUrl;
   bool _cargandoDatos = true;
@@ -114,14 +114,46 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
     return resultado ?? false;
   }
 
+  pw.Widget _construirCajitaPDF(String texto) {
+    return pw.Container(
+      width: 22, height: 16,
+      decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
+      alignment: pw.Alignment.center,
+      child: pw.Text(texto, style: const pw.TextStyle(fontSize: 10)),
+    );
+  }
+
+  pw.Widget _construirLineaPDF(String etiqueta, String valor) {
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.end,
+      children: [
+        pw.Text("$etiqueta ", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+        pw.Expanded(
+          child: pw.Container(
+            padding: const pw.EdgeInsets.only(bottom: 1, left: 4), 
+            decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.8))),
+            child: pw.Text(valor, style: const pw.TextStyle(fontSize: 11)),
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<Uint8List?> _generarBytesPDFAdmin(Map<String, dynamic> data) async {
     try {
       final pdf = pw.Document();
       pw.MemoryImage? imagenLogo;
+      pw.MemoryImage? imagenPagos;
 
       if (_logoUrl != null && _logoUrl!.isNotEmpty) {
         try {
-          if (_logoUrl!.length > 500) {
+          if (_logoUrl!.startsWith('http')) {
+            final req = await html.HttpRequest.request(
+              _logoUrl!,
+              responseType: 'arraybuffer',
+            );
+            imagenLogo = pw.MemoryImage((req.response as dynamic).asUint8List());
+          } else if (_logoUrl!.length > 500) {
             final bytes = base64Decode(_logoUrl!);
             imagenLogo = pw.MemoryImage(Uint8List.fromList(bytes));
           }
@@ -130,11 +162,25 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
         }
       }
 
+      try {
+        final ByteData bytesPagos = await rootBundle.load('assets/pagos.jpg'); 
+        imagenPagos = pw.MemoryImage(bytesPagos.buffer.asUint8List());
+      } catch (_) {
+        try { 
+          final ByteData bytesPagos = await rootBundle.load('assets/pagos.png');
+          imagenPagos = pw.MemoryImage(bytesPagos.buffer.asUint8List());
+        } catch (_) {}
+      }
+
+      const String svgWhatsapp = '''<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#25D366" d="M12.031 0C5.383 0 0 5.383 0 12.031c0 2.124.551 4.195 1.597 6.012L.038 24l6.113-1.603a11.96 11.96 0 0 0 5.88 1.535h.005c6.648 0 12.031-5.384 12.031-12.032C24.067 5.383 18.679 0 12.031 0zm0 21.933h-.004a9.922 9.922 0 0 1-5.062-1.385l-.363-.215-3.766.987.998-3.668-.236-.376a9.92 9.92 0 0 1-1.517-5.313c0-5.502 4.478-9.98 9.98-9.98 5.502 0 9.98 4.478 9.98 9.98 0 5.502-4.478 9.98-9.98 9.98z"/><path fill="#FFF" d="M17.505 14.453c-.301-.151-1.777-.878-2.052-.979-.276-.1-.477-.151-.678.151-.201.301-.778.979-.953 1.18-.175.201-.351.226-.652.075-.301-.151-1.27-.468-2.42-1.493-.895-.798-1.501-1.784-1.677-2.085-.175-.301-.019-.464.132-.614.135-.135.301-.351.452-.527.151-.175.201-.351.301-.502.1-.201.05-.376-.025-.527-.075-.151-.678-1.631-.928-2.233-.245-.59-.493-.51-.678-.519-.175-.01-.376-.01-.577-.01-.201 0-.527.075-.803.376-.276.301-1.053 1.029-1.053 2.509s1.078 2.91 1.229 3.111c.151.201 2.124 3.242 5.143 4.545.719.31 1.28.495 1.718.633.723.23 1.382.197 1.901.12.583-.087 1.777-.726 2.028-1.43.251-.703.251-1.305.175-1.43-.075-.125-.276-.2-.577-.351z"/></svg>''';
+
       pdf.addPage(
         pw.Page(
           pageFormat: const PdfPageFormat(22 * PdfPageFormat.cm, 11 * PdfPageFormat.cm, marginAll: 1 * PdfPageFormat.cm),
           build: (pw.Context context) {
             final date = DateTime.parse(data['fecha'] ?? DateTime.now().toIso8601String());
+            final adminEmail = FirebaseAuth.instance.currentUser?.email ?? "";
+
             return pw.Container(
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -153,10 +199,23 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
                             pw.SizedBox(height: 5), 
                             pw.Text(_nombreEmpresa.toUpperCase(), style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
                             if (_rutEmpresa.isNotEmpty) pw.Text("RUT: $_rutEmpresa", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                            
                             pw.SizedBox(height: 2),
-                            pw.Text("Correo: ${FirebaseAuth.instance.currentUser?.email}", style: const pw.TextStyle(fontSize: 10)),
+                            pw.Text(adminEmail.toLowerCase(), style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                            if (_sitioWeb.isNotEmpty) ...[
+                              pw.SizedBox(height: 2),
+                              pw.Text(_sitioWeb.toUpperCase(), style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                            ],
+                            
                             pw.SizedBox(height: 5),
-                            pw.Text("+56 $_celularEmpresa", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                            pw.Row(
+                              mainAxisAlignment: pw.MainAxisAlignment.center,
+                              children: [
+                                pw.SvgImage(svg: svgWhatsapp, width: 14, height: 14),
+                                pw.SizedBox(width: 5),
+                                pw.Text("+56 $_celularEmpresa", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                              ],
+                            )
                           ],
                         ),
                       ),
@@ -165,25 +224,72 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
                         children: [
                           pw.Text("Recibo N° ${data['numero'].toString().padLeft(4, '0')}", style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
                           pw.SizedBox(height: 10),
-                          pw.Text("Fecha: ${DateFormat('dd/MM/yyyy').format(date)}", style: const pw.TextStyle(fontSize: 10)),
-                          pw.Text("Hora: ${DateFormat('HH:mm').format(date)}", style: const pw.TextStyle(fontSize: 10)),
+                          pw.Row(
+                            children: [
+                              pw.Text("Fecha ", style: const pw.TextStyle(fontSize: 10)),
+                              _construirCajitaPDF(DateFormat('dd').format(date)),
+                              _construirCajitaPDF(DateFormat('MM').format(date)),
+                              _construirCajitaPDF(DateFormat('yy').format(date)),
+                            ],
+                          ),
                         ],
                       ),
                     ],
                   ),
                   pw.SizedBox(height: 15),
-                  pw.Text("SR (A): ${data['sr'] ?? ''}".toUpperCase(), style: pw.TextStyle(fontSize: 12)),
-                  pw.SizedBox(height: 6),
-                  pw.Text("ORIGEN: ${data['origen'] ?? ''}  ➔  DESTINO: ${data['destino'] ?? ''}".toUpperCase(), style: pw.TextStyle(fontSize: 12)),
-                  pw.SizedBox(height: 6),
-                  pw.Text("OBSERVACIONES: ${data['observaciones'] ?? ''}".toUpperCase(), style: pw.TextStyle(fontSize: 12)),
-                  pw.SizedBox(height: 6),
-                  pw.Text("CONDUCTOR: ${data['conductor_nombre'] ?? ''}  |  PATENTE: ${data['patente'] ?? ''}".toUpperCase(), style: pw.TextStyle(fontSize: 12)),
+                  
+                  _construirLineaPDF("SR (A):", (data['sr'] ?? '').toString().toUpperCase()),
+                  pw.SizedBox(height: 8),
+                  if (data['esConvenio'] == true || data['convenio_empresa'] == true) ...[
+                    _construirLineaPDF("EMPRESA CONVENIO:", (data['empresaPasajero'] ?? data['nombre_empresa_pasajero'] ?? '').toString().toUpperCase()),
+                    pw.SizedBox(height: 8),
+                  ],
+                  pw.Row(
+                    children: [
+                      pw.Expanded(child: _construirLineaPDF("ORIGEN:", (data['origen'] ?? '').toString().toUpperCase())),
+                      pw.SizedBox(width: 15),
+                      pw.Expanded(child: _construirLineaPDF("DESTINO:", (data['destino'] ?? '').toString().toUpperCase())),
+                    ],
+                  ),
+                  pw.SizedBox(height: 8),
+                  _construirLineaPDF("OBSERVACIONES:", (data['observaciones'] ?? '').toString().toUpperCase()),
+                  pw.SizedBox(height: 8),
+                  pw.Row(
+                    children: [
+                      pw.Expanded(flex: 3, child: _construirLineaPDF("CONDUCTOR:", (data['conductor_nombre'] ?? '').toString().toUpperCase())),
+                      pw.SizedBox(width: 15),
+                      pw.Expanded(flex: 2, child: _construirLineaPDF("PATENTE:", (data['patente'] ?? '').toString().toUpperCase())),
+                    ],
+                  ),
+                  
                   pw.Spacer(),
-                  pw.Align(
-                    alignment: pw.Alignment.centerRight,
-                    child: pw.Text("TOTAL VALOR \$ ${NumberFormat('#,##0', 'es_CL').format(data['monto'] ?? 0)}", style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold)),
-                  )
+                  
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      if (imagenPagos != null)
+                        pw.Container(width: 120, height: 35, child: pw.Image(imagenPagos, fit: pw.BoxFit.contain))
+                      else
+                        pw.SizedBox(width: 120), 
+                      
+                      pw.Expanded(
+                        child: pw.Row(
+                          crossAxisAlignment: pw.CrossAxisAlignment.end,
+                          mainAxisAlignment: pw.MainAxisAlignment.end, 
+                          children: [
+                            pw.Text("VALOR \$ ", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                            pw.Container(
+                              width: 120,
+                              padding: const pw.EdgeInsets.only(bottom: 2, left: 5), 
+                              decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.8))),
+                              child: pw.Text(NumberFormat.currency(locale: 'es_CL', symbol: '', decimalDigits: 0).format(data['monto'] ?? 0), style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             );
@@ -292,7 +398,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
 
   Future<void> _exportarExcelAdmin(List<QueryDocumentSnapshot> docs) async {
     try {
-      String csvData = "N° Recibo,Fecha,Conductor,Patente,Pasajero,Origen,Destino,Monto\n";
+      String csvData = "N° Recibo;Fecha;Conductor;Patente;Pasajero;Origen;Destino;Monto\n";
       double sumaTotal = 0; 
 
       final fMoneda = NumberFormat('#,##0', 'es_CL');
@@ -314,19 +420,67 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
         sumaTotal += monto; 
 
         final montoFormateado = "\$${fMoneda.format(monto)}";
-        csvData += "$numero,$fecha,\"$conductor\",\"$patente\",\"$passenger\",\"$origen\",\"$destino\",\"$montoFormateado\"\n";
+       csvData += "$numero;$fecha,\"$conductor\";\"$patente\";\"$passenger\";\"$origen\";\"$destino\";\"$montoFormateado\"\n";
       }
 
       final totalFormateado = "\$${fMoneda.format(sumaTotal)}";
-      csvData += ",,,,,,,\"TOTAL:\",\"$totalFormateado\"\n";
+      csvData += ";;;;;;;\"TOTAL:\";\"$totalFormateado\"\n";
 
       final nombreArchivo = "Reporte_Flota_${DateFormat('dd_MM_yyyy').format(DateTime.now())}.csv";
-      final bytes = Uint8List.fromList([239, 187, 191] + utf8.encode(csvData));
 
-      await Printing.sharePdf(bytes: bytes, filename: nombreArchivo);
+      try {
+        await FirebaseFirestore.instance.collection('reportes').add({
+          'empresa_correo': FirebaseAuth.instance.currentUser?.email ?? "",
+          'fecha': DateTime.now().toIso8601String(),
+          'monto_total': sumaTotal,
+          'total_recibos': docs.length,
+          'csv_data': csvData,
+          'nombre_archivo': nombreArchivo,
+        });
+      } catch (e) {
+        print("Error respaldando reporte de flota: $e");
+      }
 
+      if (kIsWeb) {
+        final bytes = utf8.encode('\uFEFF$csvData');
+        final blob = html.Blob([bytes], 'text/csv;charset=utf-8');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        
+        final anchor = html.AnchorElement(href: url)
+          ..setAttribute("download", nombreArchivo)
+          ..style.display = 'none';
+        
+        html.document.body?.children.add(anchor);
+        anchor.click();
+        
+        html.document.body?.children.remove(anchor);
+        html.Url.revokeObjectUrl(url);
+
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Archivo CSV descargado.')));
+      } else {
+        final bytes = Uint8List.fromList([239, 187, 191] + utf8.encode(csvData));
+        await Printing.sharePdf(bytes: bytes, filename: nombreArchivo);
+      }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al generar Excel: $e')));
+    }
+  }
+
+  void _descargarReporteExistenteAdmin(String csvData, String nombreArchivo) async {
+    if (kIsWeb) {
+      final bytes = utf8.encode('\uFEFF$csvData'); 
+      final blob = html.Blob([bytes], 'text/csv;charset=utf-8');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement(href: url)
+        ..setAttribute("download", nombreArchivo)
+        ..style.display = 'none';
+      html.document.body?.children.add(anchor);
+      anchor.click();
+      html.document.body?.children.remove(anchor);
+      html.Url.revokeObjectUrl(url);
+    } else {
+      final bytes = Uint8List.fromList([239, 187, 191] + utf8.encode(csvData));
+      await Printing.sharePdf(bytes: bytes, filename: nombreArchivo);
     }
   }
 
@@ -415,11 +569,7 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
     } else if (ruta.length > 500) {
       imagenFinal = Image.memory(base64Decode(ruta), fit: BoxFit.contain);
     } else {
-      if (kIsWeb) {
-        imagenFinal = const Icon(Icons.business, color: Color(0xFF0D47A1), size: 24);
-      } else {
-         imagenFinal = const Icon(Icons.business, color: Color(0xFF0D47A1), size: 24);
-      }
+      imagenFinal = const Icon(Icons.business, color: Color(0xFF0D47A1), size: 24);
     }
 
     return Container(
@@ -642,6 +792,49 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
                   _exportarExcelAdmin(docs); 
                 },
               ),
+
+              const SizedBox(height: 30),
+              const Divider(),
+              const SizedBox(height: 15),
+              const Text("HISTORIAL DE REPORTES GENERADOS (FLOTA)", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
+              const SizedBox(height: 10),
+              StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('reportes')
+                    .where('empresa_correo', isEqualTo: emailAdmin)
+                    .snapshots(),
+                builder: (context, snapshotReportes) {
+                  if (!snapshotReportes.hasData) return const Center(child: CircularProgressIndicator());
+                  final rDocs = snapshotReportes.data!.docs;
+                  if (rDocs.isEmpty) return const Center(child: Text("No hay reportes archivados en esta flota.", style: TextStyle(color: Colors.grey, fontSize: 13)));
+                  
+                  final listaDocs = List<QueryDocumentSnapshot>.from(rDocs);
+                  listaDocs.sort((a, b) => (b.data() as Map<String, dynamic>)['fecha'].toString().compareTo((a.data() as Map<String, dynamic>)['fecha'].toString()));
+
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: listaDocs.length,
+                    itemBuilder: (context, index) {
+                      final rData = listaDocs[index].data() as Map<String, dynamic>;
+                      final fechaRep = DateTime.parse(rData['fecha'] ?? DateTime.now().toIso8601String());
+                      
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        child: ListTile(
+                          leading: const Icon(Icons.insert_drive_file, color: Colors.green),
+                          title: Text(rData['nombre_archivo'] ?? 'Finanzas.csv', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                          subtitle: Text("Generado: ${DateFormat('dd/MM/yyyy HH:mm').format(fechaRep)}\nMonto total: ${f.format(rData['monto_total'] ?? 0)} (${rData['total_recibos'] ?? 0} viajes)"),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.download_for_offline, color: Color(0xFF0D47A1), size: 28),
+                            onPressed: () => _descargarReporteExistenteAdmin(rData['csv_data'] ?? '', rData['nombre_archivo'] ?? 'Reporte.csv'),
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
             ],
           ),
         );
@@ -653,7 +846,17 @@ class _PantallaAdminDashboardState extends State<PantallaAdminDashboard> with Si
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border(left: BorderSide(color: c, width: 6)), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6)]),
+      decoration: BoxDecoration(
+        color: Colors.white, 
+        borderRadius: BorderRadius.circular(12), 
+        border: Border(left: BorderSide(color: c, width: 6)), 
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08), 
+            blurRadius: 6,
+          )
+        ],
+      ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(t, style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)), const SizedBox(height: 6), Text(m, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: c))]),
     );
   }

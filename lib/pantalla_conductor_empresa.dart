@@ -1,7 +1,7 @@
 // ignore_for_file: prefer_const_constructors, use_build_context_synchronously, avoid_print
 import 'dart:io';
 import 'dart:convert'; 
-import 'package:flutter/foundation.dart'; // 🚀 AÑADIDO PARA kIsWeb
+import 'package:flutter/foundation.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -9,7 +9,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart'; // 🚀 AÑADIDO: PAQUETE UNIVERSAL DE PDF
+import 'package:printing/printing.dart'; 
 import 'pantalla_bienvenida.dart';
 
 class PantallaConductorEmpresa extends StatefulWidget {
@@ -28,7 +28,9 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
   final _destinoCtrl = TextEditingController();
   final _observacionesCtrl = TextEditingController();
   final _montoCtrl = TextEditingController();
+  final _fechaCtrl = TextEditingController(); 
 
+  DateTime _fechaSeleccionada = DateTime.now(); 
   bool _convenioEmpresa = false;
   bool _mostrarLogosPago = true; 
 
@@ -51,7 +53,33 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _fechaCtrl.text = DateFormat('dd/MM/yyyy').format(_fechaSeleccionada); 
     _cargarDatosDesdeFirestore();
+  }
+
+  Future<void> _seleccionarFecha(BuildContext context) async {
+    final DateTime? seleccion = await showDatePicker(
+      context: context,
+      initialDate: _fechaSeleccionada,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF0D47A1), 
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (seleccion != null && seleccion != _fechaSeleccionada) {
+      setState(() {
+        _fechaSeleccionada = seleccion;
+        _fechaCtrl.text = DateFormat('dd/MM/yyyy').format(_fechaSeleccionada);
+      });
+    }
   }
 
   Future<void> _cargarDatosDesdeFirestore() async {
@@ -149,8 +177,8 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
 
   pw.Widget _construirCajitaPDF(String texto) {
     return pw.Container(
-      width: 25, height: 20,
-      decoration: pw.BoxDecoration(border: pw.Border.all(width: 1)),
+      width: 22, height: 16,
+      decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
       alignment: pw.Alignment.center,
       child: pw.Text(texto, style: const pw.TextStyle(fontSize: 10)),
     );
@@ -160,19 +188,18 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.end,
       children: [
-        pw.Text("$etiqueta ", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+        pw.Text("$etiqueta ", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
         pw.Expanded(
           child: pw.Container(
-            padding: const pw.EdgeInsets.only(bottom: 2), 
-            decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 1))),
-            child: pw.Text(valor, style: const pw.TextStyle(fontSize: 12)),
+            padding: const pw.EdgeInsets.only(bottom: 1, left: 4), 
+            decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.8))),
+            child: pw.Text(valor, style: const pw.TextStyle(fontSize: 11)),
           ),
         ),
       ],
     );
   }
 
-  // 🚀 REEMPLAZO 1: _generarPDFCorporativo AHORA DEVUELVE Uint8List EN LUGAR DE File
   Future<Uint8List?> _generarPDFCorporativo(Map<String, dynamic> data) async {
     try {
       pw.MemoryImage? imagenLogo;
@@ -190,7 +217,6 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
             final bytes = base64Decode(_logoUrl!);
             imagenLogo = pw.MemoryImage(Uint8List.fromList(bytes));
           } else {
-            // 🚀 EVITAMOS ERROR DE RUTA LOCAL EN WEB
             if (!kIsWeb) {
               final file = File(_logoUrl!);
               if (file.existsSync()) {
@@ -208,7 +234,10 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
         final ByteData bytesPagos = await rootBundle.load('assets/pagos.jpg');
         imagenPagos = pw.MemoryImage(bytesPagos.buffer.asUint8List());
       } catch (e) {
-        print("No se cargo pagos.jpg");
+        try {
+          final ByteData bytesPagos = await rootBundle.load('assets/pagos.png');
+          imagenPagos = pw.MemoryImage(bytesPagos.buffer.asUint8List());
+        } catch (_) {}
       }
 
       final pdf = pw.Document();
@@ -240,10 +269,17 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
                             pw.Text(data['empresa_nombre_titular'] ?? _nombreEmpresa.toUpperCase(), style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
                             if (_rutEmpresa.isNotEmpty)
                               pw.Text("RUT: $_rutEmpresa", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                            
+                            // 🚀 ENCABEZADO LIMPIO: Sin prefijo "Correo:", tamaño 12 y en negrita
                             pw.SizedBox(height: 2),
-                            if (_sitioWeb.isNotEmpty)
-                              pw.Text("Web: ${_sitioWeb.toUpperCase()}", style: const pw.TextStyle(fontSize: 10)),
-                            pw.Text("Correo: $_empresaCorreo", style: const pw.TextStyle(fontSize: 10)),
+                            pw.Text(_empresaCorreo.toLowerCase(), style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                            
+                            // 🚀 ENCABEZADO LIMPIO: Sin prefijo "Web:", tamaño 12 y en negrita
+                            if (_sitioWeb.isNotEmpty) ...[
+                              pw.SizedBox(height: 2),
+                              pw.Text(_sitioWeb.toUpperCase(), style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                            ],
+                            
                             pw.SizedBox(height: 5),
                             pw.Row(
                               mainAxisAlignment: pw.MainAxisAlignment.center,
@@ -270,55 +306,47 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
                               _construirCajitaPDF(DateFormat('yy').format(date)),
                             ],
                           ),
-                          pw.SizedBox(height: 5),
-                          pw.Row(
-                            children: [
-                              pw.Text("Hora ", style: const pw.TextStyle(fontSize: 10)),
-                              pw.Container(
-                                width: 50, height: 20,
-                                decoration: pw.BoxDecoration(border: pw.Border.all(width: 1)),
-                                alignment: pw.Alignment.center,
-                                child: pw.Text(DateFormat('HH:mm').format(date), style: const pw.TextStyle(fontSize: 10)),
-                              ),
-                            ],
-                          ),
                         ],
                       ),
                     ],
                   ),
-                  pw.SizedBox(height: 10),
-                  _construirLineaPDF("SR (A):", data['sr'] ?? ''),
+                  pw.SizedBox(height: 15),
+                  
+                  _construirLineaPDF("SR (A):", (data['sr'] ?? '').toUpperCase()),
                   pw.SizedBox(height: 8),
                   if (data['convenio_empresa'] == true) ...[
-                    _construirLineaPDF("EMPRESA CONVENIO:", data['nombre_empresa_pasajero'] ?? ''),
+                    _construirLineaPDF("EMPRESA CONVENIO:", (data['nombre_empresa_pasajero'] ?? '').toUpperCase()),
                     pw.SizedBox(height: 8),
                   ],
                   pw.Row(
                     children: [
-                      pw.Expanded(child: _construirLineaPDF("ORIGEN:", data['origen'] ?? '')),
+                      pw.Expanded(child: _construirLineaPDF("ORIGEN:", (data['origen'] ?? '').toUpperCase())),
                       pw.SizedBox(width: 15),
-                      pw.Expanded(child: _construirLineaPDF("DESTINO:", data['destino'] ?? '')),
+                      pw.Expanded(child: _construirLineaPDF("DESTINO:", (data['destino'] ?? '').toUpperCase())),
                     ],
                   ),
                   pw.SizedBox(height: 8),
-                  _construirLineaPDF("OBSERVACIONES:", data['observaciones'] ?? ''),
+                  _construirLineaPDF("OBSERVACIONES:", (data['observaciones'] ?? '').toUpperCase()),
                   pw.SizedBox(height: 8),
                   pw.Row(
                     children: [
-                      pw.Expanded(flex: 3, child: _construirLineaPDF("CONDUCTOR:", data['conductor_nombre'] ?? '')),
+                      pw.Expanded(flex: 3, child: _construirLineaPDF("CONDUCTOR:", (data['conductor_nombre'] ?? '').toUpperCase())),
                       pw.SizedBox(width: 15),
-                      pw.Expanded(flex: 2, child: _construirLineaPDF("PATENTE:", data['patente'] ?? '')),
+                      pw.Expanded(flex: 2, child: _construirLineaPDF("PATENTE:", (data['patente'] ?? '').toUpperCase())),
                     ],
                   ),
+                  
                   pw.Spacer(),
+                  
                   pw.Row(
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: pw.CrossAxisAlignment.end,
                     children: [
                       if (data['mostrar_logos'] == true && imagenPagos != null)
-                        pw.Container(width: 250, height: 35, child: pw.Image(imagenPagos, fit: pw.BoxFit.contain))
+                        pw.Container(width: 120, height: 35, child: pw.Image(imagenPagos, fit: pw.BoxFit.contain))
                       else
-                        pw.SizedBox(width: 250), 
+                        pw.SizedBox(width: 120), 
+                      
                       pw.Expanded(
                         child: pw.Row(
                           crossAxisAlignment: pw.CrossAxisAlignment.end,
@@ -326,8 +354,9 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
                           children: [
                             pw.Text("VALOR \$ ", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
                             pw.Container(
-                              padding: const pw.EdgeInsets.only(bottom: 2), 
-                              decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 1))),
+                              width: 120, 
+                              padding: const pw.EdgeInsets.only(bottom: 2, left: 5), 
+                              decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.8))),
                               child: pw.Text(NumberFormat.currency(locale: 'es_CL', symbol: '', decimalDigits: 0).format(data['monto'] ?? 0), style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
                             ),
                           ],
@@ -342,7 +371,6 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
         ),
       );
 
-      // 🚀 RETORNAMOS DIRECTAMENTE LOS BYTES (ESTO FUNCIONA EN WEB Y CELULAR)
       return await pdf.save();
 
     } catch (e) {
@@ -352,11 +380,9 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
     }
   }
 
-  // 🚀 REEMPLAZO 2: _abrirOpcionesPDF AHORA USA EL PAQUETE "PRINTING"
   void _abrirOpcionesPDF(Map<String, dynamic> item) async {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Procesando documento... ⏳"), duration: Duration(milliseconds: 800)));
     
-    // Obtenemos los Bytes del PDF
     Uint8List? archivoPdfBytes = await _generarPDFCorporativo(item);
     if (archivoPdfBytes == null) return;
     if (!mounted) return;
@@ -376,7 +402,6 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
               title: const Text("Ver / Imprimir PDF"),
               onTap: () async {
                 Navigator.pop(context);
-                // 🚀 ABRE PREVISUALIZACIÓN EN WEB Y CELULAR
                 await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => archivoPdfBytes);
               },
             ),
@@ -385,7 +410,6 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
               title: const Text("Compartir / Descargar"),
               onTap: () async {
                 Navigator.pop(context);
-                // 🚀 EN WEB: DESCARGA EL ARCHIVO. EN CELULAR: ABRE WHATSAPP/CORREO.
                 await Printing.sharePdf(bytes: archivoPdfBytes, filename: 'Recibo_Flota_N${item['numero']}.pdf');
               },
             ),
@@ -396,7 +420,7 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
     );
   }
 
-  Future<void> _emitirRecibo() async {
+  Future<void> _emititRecibo() async {
     if (_montoCtrl.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("El monto es obligatorio.")));
       return;
@@ -407,7 +431,7 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
     try {
       final nuevoRecibo = {
         'numero': _numeroCorrelativoActual,
-        'fecha': DateTime.now().toIso8601String(),
+        'fecha': _fechaSeleccionada.toIso8601String(), 
         'convenio_empresa': _convenioEmpresa, 
         'nombre_empresa_pasajero': _convenioEmpresa ? _empresaPasajeroCtrl.text.trim() : "", 
         'mostrar_logos': _mostrarLogosPago,
@@ -436,6 +460,8 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
         _numeroCorrelativoActual++;
         _convenioEmpresa = false;
         _mostrarLogosPago = true; 
+        _fechaSeleccionada = DateTime.now();
+        _fechaCtrl.text = DateFormat('dd/MM/yyyy').format(_fechaSeleccionada);
       }); 
 
       _abrirOpcionesPDF(nuevoRecibo);
@@ -451,7 +477,6 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
   Widget _construirAvatarLogo(String? ruta) {
     Widget imagenFinal;
 
-    // 1. Detecta qué tipo de imagen viene (Base64, URL o Archivo local)
     if (ruta == null || ruta.isEmpty) {
       imagenFinal = const Icon(Icons.business, color: Color(0xFF0D47A1), size: 24);
     } else if (ruta.startsWith('http')) {
@@ -459,7 +484,6 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
     } else if (ruta.length > 500) {
       imagenFinal = Image.memory(base64Decode(ruta), fit: BoxFit.contain);
     } else {
-      // 🚀 PROTECCIÓN DE IMAGEN LOCAL PARA WEB
       if (kIsWeb) {
          imagenFinal = const Icon(Icons.business, color: Color(0xFF0D47A1), size: 24);
       } else {
@@ -472,10 +496,9 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
       }
     }
 
-    // 2. Envuelve la imagen en un contenedor que fuerza el ajuste perfecto
     return Container(
-      color: Colors.white, // Garantiza que si el logo es cuadrado, los bordes sobrantes sean blancos
-      padding: const EdgeInsets.all(3), // Pequeño margen para que no choque con el círculo exterior
+      color: Colors.white, 
+      padding: const EdgeInsets.all(3), 
       child: imagenFinal,
     );
   }
@@ -552,6 +575,22 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          TextField(
+            controller: _fechaCtrl,
+            readOnly: true,
+            onTap: () => _seleccionarFecha(context),
+            decoration: InputDecoration(
+              labelText: "Fecha del Servicio",
+              suffixIcon: const Icon(Icons.calendar_month, color: Color(0xFF0D47A1)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade400)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFF0D47A1), width: 2)),
+              filled: true,
+              fillColor: Colors.blue[50],
+            ),
+          ),
+          const SizedBox(height: 16),
+
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -616,7 +655,7 @@ class _PantallaConductorEmpresaState extends State<PantallaConductorEmpresa> wit
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)), 
                 ),
-                onPressed: _emitirRecibo,
+                onPressed: _emititRecibo,
                 child: const Text("GUARDAR E INYECTAR EN FLOTA", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
               ),
         ],

@@ -1,9 +1,9 @@
-// ignore_for_file: prefer_const_constructors, use_build_context_synchronously
+// ignore_for_file: prefer_const_constructors, use_build_context_synchronously, avoid_print
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'pantalla_admin.dart';
+import 'pantalla_admin.dart'; 
 import 'pantalla_registro_empresa.dart';
 
 class PantallaLoginAdmin extends StatefulWidget {
@@ -15,7 +15,7 @@ class PantallaLoginAdmin extends StatefulWidget {
 
 class _PantallaLoginAdminState extends State<PantallaLoginAdmin> {
   final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController(); 
   bool _cargando = false;
   bool _ocultarPassword = true;
   bool _recordarme = false;
@@ -33,11 +33,29 @@ class _PantallaLoginAdminState extends State<PantallaLoginAdmin> {
         _recordarme = prefs.getBool('recordarme_activado_admin') ?? false;
         if (_recordarme) {
           _emailController.text = prefs.getString('email_guardado_admin') ?? '';
-          _passwordController.text = prefs.getString('password_guardado_admin') ?? '';
+          _passwordController.text = ''; // 🚀 NUNCA carga la contraseña por seguridad
         }
       });
     } catch (e) {
       debugPrint(e.toString());
+    }
+  }
+
+  Future<void> _recuperarContrasena() async {
+    final correo = _emailController.text.trim(); 
+    if (correo.isEmpty || !correo.contains('@')) {
+      _mostrarAlerta("Ingresa tu correo válido en la casilla de arriba para restablecer la contraseña.");
+      return;
+    }
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: correo);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Enlace enviado. Revisa tu correo."), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) _mostrarAlerta("Error: No se pudo enviar el correo de recuperación.");
     }
   }
 
@@ -50,40 +68,67 @@ class _PantallaLoginAdminState extends State<PantallaLoginAdmin> {
     setState(() { _cargando = true; });
 
     try {
-      final String correoIngresado = _emailController.text.trim();
+      final String correoTipeado = _emailController.text.trim();
+      final String correoLower = correoTipeado.toLowerCase();
+      final String correoCap = correoLower.isNotEmpty ? correoLower[0].toUpperCase() + correoLower.substring(1) : "";
 
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: correoIngresado,
+      UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: correoTipeado,
         password: _passwordController.text.trim(),
       );
 
-      DocumentSnapshot docEmpresa = await FirebaseFirestore.instance
-          .collection('empresas')
-          .doc(correoIngresado)
-          .get();
+      final String? correoAuth = userCredential.user?.email;
 
-      if (!docEmpresa.exists) {
+      List<String> variacionesAdmin = {
+        correoTipeado,
+        correoLower,
+        correoCap,
+        if (correoAuth != null) correoAuth,
+        if (correoAuth != null) correoAuth.toLowerCase(),
+      }.toList();
+
+      bool esValido = false;
+
+      for (String variante in variacionesAdmin) {
+        DocumentSnapshot docEmpresa = await FirebaseFirestore.instance.collection('empresas').doc(variante).get();
+        if (docEmpresa.exists) {
+          esValido = true;
+          break;
+        }
+      }
+
+      if (!esValido) {
         QuerySnapshot queryAlternativa = await FirebaseFirestore.instance
             .collection('empresas')
-            .where('correo_admin', isEqualTo: correoIngresado)
+            .where('correo_admin', whereIn: variacionesAdmin)
             .get();
 
         if (queryAlternativa.docs.isEmpty) {
-          await FirebaseAuth.instance.signOut();
-          _mostrarAlerta("No tienes permisos de Administrador Corporativo.");
-          return;
+          queryAlternativa = await FirebaseFirestore.instance
+              .collection('empresas')
+              .where('correo', whereIn: variacionesAdmin)
+              .get();
         }
+
+        if (queryAlternativa.docs.isNotEmpty) {
+          esValido = true;
+        }
+      }
+
+      if (!esValido) {
+        await FirebaseAuth.instance.signOut();
+        _mostrarAlerta("No tienes permisos de Administrador Corporativo.");
+        return;
       }
 
       try {
         SharedPreferences prefs = await SharedPreferences.getInstance();
         if (_recordarme) {
           await prefs.setString('email_guardado_admin', _emailController.text.trim());
-          await prefs.setString('password_guardado_admin', _passwordController.text.trim());
           await prefs.setBool('recordarme_activado_admin', true);
         } else {
           await prefs.remove('email_guardado_admin');
-          await prefs.remove('password_guardado_admin');
+          await prefs.remove('password_guardado_admin'); // Limpieza preventiva
           await prefs.setBool('recordarme_activado_admin', false);
         }
       } catch (e) {
@@ -103,8 +148,6 @@ class _PantallaLoginAdminState extends State<PantallaLoginAdmin> {
       if (e.code == 'wrong-password') mensaje = "Contraseña incorrecta.";
       if (e.code == 'invalid-credential') mensaje = "Credenciales inválidas.";
       _mostrarAlerta(mensaje);
-    } on FirebaseException catch (e) {
-      _mostrarAlerta("Fallo de Base de datos: Permiso Denegado.");
     } catch (e) {
       _mostrarAlerta("Verifica tus credenciales y tu conexión a internet.");
     } finally {
@@ -197,7 +240,7 @@ class _PantallaLoginAdminState extends State<PantallaLoginAdmin> {
                               setState(() { _recordarme = valor ?? false; });
                             },
                           ),
-                          const Text("Recordar mis datos", style: TextStyle(color: Colors.grey, fontSize: 14)),
+                          const Text("Recordar mi correo", style: TextStyle(color: Colors.grey, fontSize: 14)),
                         ],
                       ),
                       const SizedBox(height: 24),
@@ -213,7 +256,11 @@ class _PantallaLoginAdminState extends State<PantallaLoginAdmin> {
                             onPressed: _loginAdministrador,
                             child: const Text("INGRESAR AL PANEL", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                           ),
-                      const SizedBox(height: 24),
+                      TextButton(
+                        onPressed: _recuperarContrasena,
+                        child: const Text("¿Olvidaste tu contraseña? Restablécela aquí", style: TextStyle(color: Color(0xFF0D47A1))),
+                      ),
+                      const SizedBox(height: 8),
                       TextButton(
                         onPressed: () {
                           Navigator.push(context, MaterialPageRoute(builder: (context) => const PantallaRegistroEmpresa()));
