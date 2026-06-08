@@ -92,7 +92,6 @@ class _PantallaInicioState extends State<PantallaInicio> {
   }
 
   void _escucharRecibosNube(String correoEmpresa) {
-    // 🚀 BLINDAJE: Forzamos minúsculas en el parámetro para evitar descalces con el visor
     final String correoFiltro = correoEmpresa.trim().toLowerCase();
     final DateTime? creationTime = FirebaseAuth.instance.currentUser?.metadata.creationTime;
     
@@ -107,47 +106,73 @@ class _PantallaInicioState extends State<PantallaInicio> {
         .listen((snapshot) {
       List<Recibo> recibosNube = [];
       for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final DateTime fechaRecibo = DateTime.parse(data['fecha'] ?? DateTime.now().toIso8601String());
+        try {
+          final data = doc.data();
+          
+          // 🚀 ESCUDO ANTI-CHOQUES: Tolerancia extrema a fallos de formato en bases de datos antiguas
+          DateTime fechaRecibo;
+          if (data['fecha'] is Timestamp) {
+            fechaRecibo = (data['fecha'] as Timestamp).toDate();
+          } else if (data['fecha'] is String) {
+            fechaRecibo = DateTime.tryParse(data['fecha']) ?? DateTime.now();
+          } else {
+            fechaRecibo = DateTime.now();
+          }
 
-        if (creationTime != null && fechaRecibo.isBefore(limiteIgnorar)) {
-          continue; 
+          if (creationTime != null && fechaRecibo.isBefore(limiteIgnorar)) {
+            continue; 
+          }
+
+          double montoSeguro = 0.0;
+          if (data['monto'] is num) {
+            montoSeguro = (data['monto'] as num).toDouble();
+          } else if (data['monto'] is String) {
+            montoSeguro = double.tryParse(data['monto'].replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+          }
+
+          int numSeguro = 0;
+          if (data['numero'] is int) {
+            numSeguro = data['numero'];
+          } else if (data['numero'] is String) {
+            numSeguro = int.tryParse(data['numero']) ?? 0;
+          }
+
+          recibosNube.add(Recibo(
+            numero: numSeguro,
+            sr: data['sr']?.toString() ?? '',
+            origen: data['origen']?.toString() ?? '',
+            destino: data['destino']?.toString() ?? '',
+            observaciones: data['observaciones']?.toString() ?? '',
+            monto: montoSeguro,
+            fecha: fechaRecibo,
+            esConvenio: data['esConvenio'] == true || data['esConvenio'] == 'true',
+            empresaPasajero: data['empresaPasajero']?.toString() ?? '',
+            mostrarLogosPago: data['mostrar_logos'] ?? data['mostrarLogosPago'] ?? true,
+          ));
+        } catch (e) {
+          // Si un recibo antiguo es inrescatable, lo ignora y no crashea la pantalla
         }
-
-        recibosNube.add(Recibo(
-          numero: data['numero'] ?? 0,
-          sr: data['sr'] ?? '',
-          origen: data['origen'] ?? '',
-          destino: data['destino'] ?? '',
-          observaciones: data['observaciones'] ?? '',
-          monto: (data['monto'] ?? 0).toDouble(),
-          fecha: fechaRecibo,
-          esConvenio: data['esConvenio'] ?? false,
-          empresaPasajero: data['empresaPasajero'] ?? '',
-          mostrarLogosPago: data['mostrar_logos'] ?? data['mostrarLogosPago'] ?? true,
-        ));
       }
       recibosNube.sort((a, b) => b.numero.compareTo(a.numero));
-      setState(() {
-        misRecibos = recibosNube;
-      });
+      if (mounted) {
+        setState(() {
+          misRecibos = recibosNube;
+        });
+      }
     });
   }
 
   Future<void> _analizarPerfilYVinculacion() async {
     try {
-      // 🚀 UNIFICACIÓN ABSOLUTA: Aplanamos el correo de entrada a minúsculas
-      final String emailClean = widget.datosEmpresa.correo.trim().toLowerCase();
-      List<String> variaciones = [emailClean, widget.datosEmpresa.correo.trim(), widget.datosEmpresa.correo.trim().toUpperCase()];
+      final String emailOriginal = widget.datosEmpresa.correo.trim();
+      final String emailClean = emailOriginal.toLowerCase();
+      final String emailCap = emailClean.isNotEmpty ? emailClean[0].toUpperCase() + emailClean.substring(1) : "";
+      
+      List<String> variaciones = [emailClean, emailOriginal, emailCap, emailOriginal.toUpperCase()].toSet().toList();
 
-      // 1. Intentar buscar como Conductor de Empresa (Flota)
-      DocumentSnapshot docFlota = await FirebaseFirestore.instance
-          .collection('conductores_flota')
-          .doc(emailClean)
-          .get();
-
+      DocumentSnapshot docFlota = await FirebaseFirestore.instance.collection('conductores_flota').doc(emailClean).get();
+      
       if (!docFlota.exists) {
-        // Fallback por si acaso quedó registrado con mayúsculas en el ID del documento
         for (String variante in variaciones) {
           DocumentSnapshot docVar = await FirebaseFirestore.instance.collection('conductores_flota').doc(variante).get();
           if (docVar.exists) {
@@ -165,17 +190,9 @@ class _PantallaInicioState extends State<PantallaInicio> {
         String sitioWeb = "";
         String? rutaLogo;
 
-        // Buscar datos de la empresa vinculada
-        DocumentSnapshot docEmpresa = await FirebaseFirestore.instance
-            .collection('empresas')
-            .doc(correoAdminFlota)
-            .get();
-
+        DocumentSnapshot docEmpresa = await FirebaseFirestore.instance.collection('empresas').doc(correoAdminFlota).get();
         if (!docEmpresa.exists) {
-          QuerySnapshot q = await FirebaseFirestore.instance
-              .collection('empresas')
-              .where('correo', whereIn: [correoAdminFlota, correoAdminFlota.toUpperCase()])
-              .get();
+          QuerySnapshot q = await FirebaseFirestore.instance.collection('empresas').where('correo', whereIn: [correoAdminFlota, correoAdminFlota.toUpperCase()]).get();
           if (q.docs.isNotEmpty) docEmpresa = q.docs.first;
         }
 
@@ -207,12 +224,7 @@ class _PantallaInicioState extends State<PantallaInicio> {
         return;
       } 
       
-      // 2. Si no es flota, buscar como Conductor Independiente
-      DocumentSnapshot docIndep = await FirebaseFirestore.instance
-          .collection('conductores_independientes')
-          .doc(emailClean)
-          .get();
-
+      DocumentSnapshot docIndep = await FirebaseFirestore.instance.collection('conductores_independientes').doc(emailClean).get();
       Map<String, dynamic>? dataIndep;
       bool encontradoIndep = false;
 
@@ -220,15 +232,9 @@ class _PantallaInicioState extends State<PantallaInicio> {
         dataIndep = docIndep.data() as Map<String, dynamic>;
         encontradoIndep = true;
       } else {
-        QuerySnapshot qIndep = await FirebaseFirestore.instance
-            .collection('conductores_independientes')
-            .where('correo', whereIn: variaciones)
-            .get();
+        QuerySnapshot qIndep = await FirebaseFirestore.instance.collection('conductores_independientes').where('correo', whereIn: variaciones).get();
         if (qIndep.docs.isEmpty) {
-          qIndep = await FirebaseFirestore.instance
-              .collection('conductores_independientes')
-              .where('email', whereIn: variaciones)
-              .get();
+          qIndep = await FirebaseFirestore.instance.collection('conductores_independientes').where('email', whereIn: variaciones).get();
         }
         if (qIndep.docs.isNotEmpty) {
           docIndep = qIndep.docs.first;
@@ -639,7 +645,7 @@ class _PantallaInicioState extends State<PantallaInicio> {
                   pw.Row(
                     children: [
                       pw.Expanded(child: _construirLineaPDF("ORIGEN:", recibo.origen.toUpperCase())),
-                      pw.SizedBox(width: 15),
+                      pw.SizedBox(width: 15), 
                       pw.Expanded(child: _construirLineaPDF("DESTINO:", recibo.destino.toUpperCase())),
                     ],
                   ),

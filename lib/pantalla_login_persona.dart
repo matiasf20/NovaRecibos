@@ -5,8 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart'; 
 import 'pantalla_conductor_independiente.dart'; 
 import 'pantalla_registro_persona.dart';
-import 'package:flutter/foundation.dart';
-import 'package:universal_html/html.dart' as html;
 
 class PantallaLoginPersona extends StatefulWidget {
   const PantallaLoginPersona({super.key});
@@ -26,54 +24,6 @@ class _PantallaLoginPersonaState extends State<PantallaLoginPersona> {
   void initState() {
     super.initState();
     _cargarCredencialesGuardadas();
-    
-    Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
-        _mostrarInstruccionesInstalacionIOS();
-      }
-    });
-  }
-
-  void _mostrarInstruccionesInstalacionIOS() {
-    if (kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
-      final esPWAInstalada = html.window.matchMedia('(display-mode: standalone)').matches ||
-                            (html.window.navigator as dynamic).standalone == true;
-
-      if (esPWAInstalada) return;
-
-      showDialog(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: const Text(
-              "¡Instala NovaRecibos!",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
-            ),
-            content: const Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  "Para una experiencia nativa y más rápida, instala la app en tu iPhone:",
-                  textAlign: TextAlign.center,
-                ),
-                SizedBox(height: 20),
-                Text("1. Toca el ícono de Compartir 📤 en la barra inferior de Safari."),
-                SizedBox(height: 10),
-                Text("2. Selecciona 'Agregar a inicio' 📱."),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Entendido"),
-              ),
-            ],
-          );
-        },
-      );
-    }
   }
 
   Future<void> _cargarCredencialesGuardadas() async {
@@ -81,15 +31,13 @@ class _PantallaLoginPersonaState extends State<PantallaLoginPersona> {
     setState(() {
       _recordarme = prefs.getBool('recordarme_activado_persona') ?? false;
       if (_recordarme) {
-        // Al cargar, aseguramos que siempre se mantenga limpio y en minúsculas
         _emailCtrl.text = (prefs.getString('email_guardado_persona') ?? '').trim().toLowerCase();
-        _passwordCtrl.text = ''; // 🚀 NUNCA carga la contraseña por seguridad corporativa
+        _passwordCtrl.text = ''; 
       }
     });
   }
 
   Future<void> _recuperarContrasena() async {
-    // 🚀 BLINDAJE: Forzamos minúsculas al recuperar también
     final correo = _emailCtrl.text.trim().toLowerCase(); 
     if (correo.isEmpty || !correo.contains('@')) {
       _mostrarAlerta("Ingresa tu correo válido en la casilla de arriba para restablecer la contraseña.");
@@ -103,7 +51,9 @@ class _PantallaLoginPersonaState extends State<PantallaLoginPersona> {
         );
       }
     } catch (e) {
-      if (mounted) _mostrarAlerta("Error: No se pudo enviar el correo de recuperación.");
+      if (mounted) {
+        _mostrarAlerta("Error: No se pudo enviar el correo de recuperación.");
+      }
     }
   }
 
@@ -113,60 +63,49 @@ class _PantallaLoginPersonaState extends State<PantallaLoginPersona> {
       return;
     }
 
-    setState(() { _cargando = true; });
+    setState(() {
+      _cargando = true;
+    });
 
     try {
-      // 🚀 LA REGLA DE ORO: Aplanamos el correo tipeado inmediatamente a minúsculas puras
-      final String correoLimpio = _emailCtrl.text.trim().toLowerCase();
+      final String correoTipeado = _emailCtrl.text.trim();
+      final String correoLimpio = correoTipeado.toLowerCase();
+      final String correoCap = correoLimpio.isNotEmpty ? correoLimpio[0].toUpperCase() + correoLimpio.substring(1) : "";
 
       UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: correoLimpio, // Enviamos el correo estandarizado a Auth
+        email: correoLimpio, 
         password: _passwordCtrl.text.trim(),
       );
 
-      final String? correoAuth = userCredential.user?.email?.trim().toLowerCase();
+      final String? correoAuth = userCredential.user?.email?.trim();
 
-      // Red de seguridad cruzada por si quedan cuentas históricas creadas con mayúsculas en la nube
-      List<String> variaciones = {
-        correoLimpio,
-        _emailCtrl.text.trim(),
+      // 🚀 Sintaxis optimizada (Collection literal recomendada por Flutter)
+      final List<String> variaciones = <String>{
+        correoLimpio, 
+        correoTipeado, 
+        correoCap, 
+        correoTipeado.toUpperCase(),
         if (correoAuth != null) correoAuth,
+        if (correoAuth != null) correoAuth.toLowerCase()
       }.toList();
 
       bool encontrado = false;
       Map<String, dynamic>? data;
 
-      // Buscar directamente por el ID óptimo (minúsculas)
-      DocumentSnapshot doc = await FirebaseFirestore.instance.collection('conductores_independientes').doc(correoLimpio).get();
-      if (doc.exists) {
-        data = doc.data() as Map<String, dynamic>;
-        encontrado = true;
-      } else {
-        // Búsqueda alternativa por ID de documento histórico
-        for (String variante in variaciones) {
-          DocumentSnapshot docVar = await FirebaseFirestore.instance.collection('conductores_independientes').doc(variante).get();
-          if (docVar.exists) {
-            data = docVar.data() as Map<String, dynamic>;
-            encontrado = true;
-            break;
-          }
+      for (String variante in variaciones) {
+        DocumentSnapshot docVar = await FirebaseFirestore.instance.collection('conductores_independientes').doc(variante).get();
+        if (docVar.exists) {
+          data = docVar.data() as Map<String, dynamic>;
+          encontrado = true;
+          break;
         }
       }
 
-      // Si no se halló por ID, escaneamos de respaldo por campos internos 'correo' o 'email'
       if (!encontrado) {
-        QuerySnapshot q = await FirebaseFirestore.instance
-            .collection('conductores_independientes')
-            .where('correo', whereIn: variaciones)
-            .get();
-
+        QuerySnapshot q = await FirebaseFirestore.instance.collection('conductores_independientes').where('correo', whereIn: variaciones).get();
         if (q.docs.isEmpty) {
-          q = await FirebaseFirestore.instance
-              .collection('conductores_independientes')
-              .where('email', whereIn: variaciones)
-              .get();
+          q = await FirebaseFirestore.instance.collection('conductores_independientes').where('email', whereIn: variaciones).get();
         }
-
         if (q.docs.isNotEmpty) {
           data = q.docs.first.data() as Map<String, dynamic>;
           encontrado = true;
@@ -179,7 +118,7 @@ class _PantallaLoginPersonaState extends State<PantallaLoginPersona> {
           nombreEmpresa: data['empresa_nombre']?.toString() ?? 'PARTICULAR',
           rutEmpresa: data['rut_empresa']?.toString() ?? '',
           celular: data['celular_contacto']?.toString() ?? '',
-          correo: correoLimpio, // 🚀 Mandamos la minúscula limpia obligatoria para que filtre los recibos
+          correo: correoLimpio, 
           patente: data['patente']?.toString() ?? '',
           sitioWeb: data['sitio_web']?.toString() ?? '',
           rutaLogo: data['ruta_logo']?.toString(),
@@ -187,7 +126,7 @@ class _PantallaLoginPersonaState extends State<PantallaLoginPersona> {
 
         SharedPreferences prefs = await SharedPreferences.getInstance();
         if (_recordarme) {
-          await prefs.setString('email_guardado_persona', correoLimpio); // Guardamos la versión estandarizada
+          await prefs.setString('email_guardado_persona', correoLimpio); 
           await prefs.setBool('recordarme_activado_persona', true);
         } else {
           await prefs.remove('email_guardado_persona');
@@ -195,14 +134,18 @@ class _PantallaLoginPersonaState extends State<PantallaLoginPersona> {
           await prefs.setBool('recordarme_activado_persona', false);
         }
 
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => PantallaInicio(datosEmpresa: misDatos)),
         );
       } else {
         await FirebaseAuth.instance.signOut();
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         _mostrarAlerta("Este correo no pertenece a un Conductor Particular.");
       }
     } on FirebaseAuthException catch (e) {
@@ -215,7 +158,9 @@ class _PantallaLoginPersonaState extends State<PantallaLoginPersona> {
       _mostrarAlerta("Verifica tus credenciales y conexión.");
     } finally { 
       if (mounted) {
-        setState(() { _cargando = false; });
+        setState(() {
+          _cargando = false;
+        });
       }
     }
   }
@@ -300,7 +245,9 @@ class _PantallaLoginPersonaState extends State<PantallaLoginPersona> {
                             value: _recordarme,
                             activeColor: const Color(0xFF0D47A1),
                             onChanged: (bool? valor) {
-                              setState(() { _recordarme = valor ?? false; });
+                              setState(() {
+                                _recordarme = valor ?? false;
+                              });
                             },
                           ),
                           const Text("Recordar mi correo", style: TextStyle(color: Colors.grey, fontSize: 14)),
